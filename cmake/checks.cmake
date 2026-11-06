@@ -11,6 +11,7 @@
 #   - Nothing here assumes the execution character set.
 
 include(CheckSymbolExists)
+include(CheckIncludeFiles)
 include(CheckFunctionExists)
 include(CheckIncludeFile)
 include(CheckCSourceCompiles)
@@ -56,6 +57,38 @@ if(NOT ZKSH_HAVE_SYSTEM_DEAD)
   if(ZKSH_STDLIB_DEAD_OK)
     set(ZKSH_HAVE_SYSTEM_DEAD 1)
   endif()
+endif()
+
+# ---- Headers ---------------------------------------------------------
+# z/OS has no <sys/param.h> at all, and MAXLOGNAME comes from it on BSD
+# but from <limits.h> (or nowhere) elsewhere.
+
+check_include_file("sys/param.h" HAVE_SYS_PARAM_H)
+if(HAVE_SYS_PARAM_H)
+  set(HAVE_SYS_PARAM_H 1)
+else()
+  set(HAVE_SYS_PARAM_H 0)
+endif()
+
+set(HAVE_MAXLOGNAME 0)
+check_c_source_compiles("
+  #include <limits.h>
+  #include <sys/param.h>
+  int zksh_pw = MAXLOGNAME;
+  int main(void) { return zksh_pw == 0; }" ZKSH_MAXLOGNAME_OK)
+if(NOT ZKSH_MAXLOGNAME_OK)
+  # BSD also has <sys/syslimits.h>; try it in case param.h is absent.
+  check_c_source_compiles("
+    #include <limits.h>
+    #include <sys/syslimits.h>
+    int zksh_pw = MAXLOGNAME;
+    int main(void) { return zksh_pw == 0; }" ZKSH_SYSLIMITS_OK)
+  if(ZKSH_SYSLIMITS_OK)
+    set(ZKSH_MAXLOGNAME_OK 1)
+  endif()
+endif()
+if(ZKSH_MAXLOGNAME_OK)
+  set(HAVE_MAXLOGNAME 1)
 endif()
 
 # ---- Functions oksh uses if present --------------------------------

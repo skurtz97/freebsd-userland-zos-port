@@ -51,7 +51,7 @@ Found by reading the tree and the z/OS reference books. Each is
 
 | # | File | Item | Decision |
 | - | ---- | ---- | -------- |
-| P6 | many | `#include <sys/cdefs.h>`, `<sys/param.h>` availability | verify on z/OS; provide a shim if missing |
+| P6 | many | `<sys/param.h>` does not exist on z/OS | **done** — `check_include_file`, guarded include, `MAXLOGNAME` probed separately (`HAVE_MAXLOGNAME`) |
 | P7 | `path.c`, `exec.c` | `_PATH_DEFPATH` and default `PATH` | z/OS default `/bin:/usr/bin` plus `/usr/local/bin` |
 | P8 | `exec.c` | `execve` `ENOEXEC` fallback shell | point at `zksh` or `/bin/sh`, deliberately |
 | P9 | `c_ulimit.c` | `getrlimit`/`setrlimit` resource names | z/OS supports address space, file size, CPUTIME; map, document the rest |

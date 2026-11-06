@@ -18,7 +18,13 @@
 #include <stdlib.h>
 #endif /* __linux__ || __CYGWIN__ || __midipix__ */
 
+#ifdef HAVE_SYS_PARAM_H
 #include <sys/param.h>
+#else
+/* z/OS has none. MAXLOGNAME, the one thing taken from it, is handled
+ * in _PW_NAME_LEN below. */
+#include <limits.h>
+#endif /* HAVE_SYS_PARAM_H */
 #include <sys/time.h>
 #include <stdint.h>
 
@@ -66,15 +72,17 @@
 #ifndef _PW_NAME_LEN
 #if defined(__linux__) || defined(__CYGWIN__) || defined(_AIX) || defined(__midipix__) || defined(__HAIKU__) || defined(__QNXNTO__)
 #define _PW_NAME_LEN	LOGIN_NAME_MAX
-#elif defined(__NetBSD__)
-#define _PW_NAME_LEN	MAXLOGNAME
 #elif defined(__sun)
 #define _PW_NAME_LEN	LOGNAME_MAX
 #elif defined(__hpux)
 #define _PW_NAME_LEN	8
+#elif defined(HAVE_MAXLOGNAME)
+/* z/OS and anything else where a header has it. */
+#define _PW_NAME_LEN	(MAXLOGNAME - 1)
 #else
-#define _PW_NAME_LEN	MAXLOGNAME - 1
-#endif /* __linux__ || __CYGWIN__ || _AIX || __NetBSD__ || __sun || __midipix__ || __HAIKU__ || __QNXNTO__ */
+/* Nothing knows the limit; use a generous, safe size. */
+#define _PW_NAME_LEN	32
+#endif
 #endif /* !_PW_NAME_LEN */
 
 #ifndef LOCK_EX
