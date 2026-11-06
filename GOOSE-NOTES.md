@@ -51,13 +51,18 @@ docs/direction.md (constitution), docs/status.md (what works).
 - ~/src/zash  : ash reference implementation, own remote, NOT vendored
 - ~/src/zrx   : unrelated (REXX)
 
+## Remotes (set up 2026-11-05, do not lose them)
+- zksh:   git@github.com:skurtz97/zksh.git  (private, main -> 3397739)
+- oksh:   git@github.com:skurtz97/oksh.git  (fork; branch zos-spawn
+          -> 3d04c43, pushed via the `zfork` remote in ~/src/oksh)
+
 ## Open questions for the user
 - D1 install as zksh only, or also sh?
 - D2 pattern syntax for ${v/pat/rep}
 - D3 alloc/free scope (DSN, DD, TSO ALLOC)
 - D4 line-mode editing: numbered history vs libedit dumb profile
 - D5 rebase on oksh upstream or fork at 7.9
-- Remote URL for this repo (skurtz97/zksh? create it)
+- Whether zksh stays private or goes public
 
 ## Next actions
 1. Set a git remote and push (the last tree died without one).
