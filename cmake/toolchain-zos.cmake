@@ -122,13 +122,23 @@ if(_zksh_want_curses AND (NOT CURSES_INCLUDE_PATH OR NOT CURSES_LIBRARY))
       foreach(_inc "${_root}/include/ncursesw" "${_root}/include/ncurses")
         if(EXISTS "${_inc}/curses.h")
           # term.h in this tree does #include <ncursesw/ncurses_dll.h>,
-          # so the parent of the ncursesw directory must be on the path
-          # too. FindCurses treats CURSES_INCLUDE_PATH as one directory,
-          # so the parent goes in its own variable.
+          # so something that contains a `ncursesw` name must be on the
+          # include path. Do NOT simply put the parent directory there:
+          # on this system the parent is zopen's SHARED include tree
+          # (/usr/local/zopen/usr/local/include), which holds every
+          # zopen package's headers -- including sys/time.h, sys/param.h
+          # and sys/stat.h from zoslib. Adding it silently shadows the
+          # system headers for the whole build, so the shell compiled
+          # against one set of headers while every feature probe saw
+          # another (HAVE_TIMERSUB said no, the compiler saw timersub).
+          #
+          # Instead, build a one-entry shim directory in the build tree
+          # that contains only a `ncursesw` link. Then the only thing
+          # exposed is what ncurses itself needs.
           get_filename_component(_parent "${_inc}" DIRECTORY)
           if(_inc MATCHES "/ncursesw$" AND EXISTS "${_parent}/ncursesw/ncurses_dll.h")
             set(CURSES_INCLUDE_PATH "${_inc}")
-            set(ZKSH_CURSES_EXTRA_INCLUDE "${_parent}")
+            set(ZKSH_CURSES_SHIM "${CMAKE_BINARY_DIR}/ncurses-shim")
           else()
             set(CURSES_INCLUDE_PATH "${_inc}")
           endif()
@@ -149,8 +159,11 @@ if(_zksh_want_curses AND (NOT CURSES_INCLUDE_PATH OR NOT CURSES_LIBRARY))
   if(CURSES_INCLUDE_PATH AND CURSES_LIBRARY)
     message(STATUS "zksh: z/OS ncurses at ${CURSES_LIBRARY}")
     message(STATUS "zksh: ncurses headers at ${CURSES_INCLUDE_PATH}")
-    if(ZKSH_CURSES_EXTRA_INCLUDE)
-      message(STATUS "zksh: ncurses header parent at ${ZKSH_CURSES_EXTRA_INCLUDE}")
+    if(ZKSH_CURSES_SHIM)
+      file(MAKE_DIRECTORY "${ZKSH_CURSES_SHIM}")
+      file(CREATE_LINK "${_parent}/ncursesw" "${ZKSH_CURSES_SHIM}/ncursesw"
+        SYMBOLIC COPY_ON_ERROR)
+      message(STATUS "zksh: ncurses include shim at ${ZKSH_CURSES_SHIM}")
     endif()
 
     # ---- zoslib ------------------------------------------------------

@@ -115,6 +115,18 @@ set(ZKSH_FUNCS asprintf getauxval reallocarray setresgid setresuid
 if(NOT ZKSH_ZOS)
   list(APPEND ZKSH_FUNCS confstr)
 endif()
+
+# The probes must link the same libraries as the target. On z/OS the
+# shell links zoslib, which supplies reallocarray, and a probe that
+# does not link it answers "absent" -- so src/reallocarray.c is
+# compiled, and then the binder reports the symbol defined twice
+# (IEW2480W). Same rule as the feature-test macros: what the check
+# sees must be what the build gets.
+set(_zksh_saved_required_libraries "${CMAKE_REQUIRED_LIBRARIES}")
+if(ZKSH_ZOS AND ZKSH_CURSES_LINK_ITEMS)
+  list(APPEND CMAKE_REQUIRED_LIBRARIES ${ZKSH_CURSES_LINK_ITEMS})
+endif()
+
 foreach(fn ${ZKSH_FUNCS})
   string(TOUPPER ${fn} FN_UC)
   set(HAVE_${FN_UC} 0)
@@ -123,6 +135,8 @@ foreach(fn ${ZKSH_FUNCS})
     set(HAVE_${FN_UC} 0)
   endif()
 endforeach()
+
+set(CMAKE_REQUIRED_LIBRARIES "${_zksh_saved_required_libraries}")
 
 # flock(): BSD 4.4, in <sys/file.h>. z/OS has it, but only under
 # _XPLATFORM_SOURCE.
