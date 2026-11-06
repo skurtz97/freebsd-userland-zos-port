@@ -1,4 +1,4 @@
-/*	zos_spawn.c -- z/OS process creation layer for oksh
+/*	zos_spawn.c -- z/OS process creation layer for zksh
  *
  * Process creation on z/OS UNIX System Services is very unlike Unix:
  *
@@ -55,26 +55,14 @@
  *
  * Headers on the z/OS sysroot that we rely on:
  *   <spawn.h>       spawnp(), struct inheritance, SPAWN_* flags
- *   <stdlib.h>      setenv() -- needs _UNIX03_SOURCE on z/OS
+ *   <stdlib.h>      getenv(), putenv()
  *   <sys/wait.h>    pid bookkeeping is unchanged (jobs.c waitpid)
  */
-
-#if defined(__MVS__)
-/* setenv() on z/OS comes from <env.h> under the POSIX.1a form. The
- * SUSv3 form (stdlib.h + _UNIX03_SOURCE) is not usable here: it emits
- * the __-prefixed LE entry points, which a statically linked program
- * cannot resolve (binder IEW2456E). The _POSIX1_SOURCE define must
- * come before any system header, hence the top of the file. */
-#define _POSIX1_SOURCE 2
-#endif /* __MVS__ */
 
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <stdlib.h>
-#if defined(__MVS__)
-#include <env.h>
-#endif /* __MVS__ */
 #include <stdint.h>
 #include <string.h>
 #include <unistd.h>
@@ -92,6 +80,12 @@ int	zos_spawn_child(int flags, struct op *t, int tty_fd,
 
 /* 		    Initialization 	    */
 
+/* Strings putenv() is given must outlive the call, so these live here
+ * rather than as locals.  Static only: zos_spawn_init runs once.
+ */
+static char shareas_env[] = "_BPX_SHAREAS=YES";
+static char jobname_env[] = "_BPX_JOBNAME=ZKSH";
+
 void
 zos_spawn_init(void)
 {
@@ -104,14 +98,19 @@ zos_spawn_init(void)
 	cp = getenv("_OKSH_SHAREAS");
 	if (cp != NULL && (strcmp(cp, "NONE") == 0 || strcmp(cp, "none") == 0))
 		return;
+	/* putenv(), not setenv(): POSIX since the beginning and not
+	 * hidden behind the z/OS feature-macro stack.  Setting it in the
+	 * environment is the point -- these are read by the kernel
+	 * services and by the daughters, not by us.
+	 */
 	if (getenv("_BPX_SHAREAS") == NULL)
-		setenv("_BPX_SHAREAS", "YES", 1);
+		putenv(shareas_env);
 	/* Batch (non-OMVS) environments: pin the job name so forked
 	 * daughters show up usefully in JES.  Harmlessly ignored in
 	 * interactive shells unless supported.
 	 */
 	if (getenv("_BPX_JOBNAME") == NULL)
-		setenv("_BPX_JOBNAME", "OKSH", 1);
+		putenv(jobname_env);
 }
 
 /* 		    The spawnp fast path 	    */
