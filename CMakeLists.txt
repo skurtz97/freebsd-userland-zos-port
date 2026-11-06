@@ -74,8 +74,13 @@ if(NOT ZKSH_TEST_SHELL)
 endif()
 if(ZKSH_ZOS)
   set(ZKSH_DECODE IBM-1047)
+  # /bin/sh reads an ASCII-tagged script only with conversion enabled;
+  # tests/run-c.sh clears this again before running zksh, whose output
+  # must stay IBM-1047.
+  set(ZKSH_TEST_ENV "_BPXK_AUTOCVT=ON")
 else()
   set(ZKSH_DECODE "")
+  set(ZKSH_TEST_ENV "")
 endif()
 
 # Every .c in src/ is part of the shell, except the z/OS-only files that

@@ -13,6 +13,13 @@
 #
 # Deliberately /bin/sh-compatible: no $( ), no local, no $'...'.
 
+# CTest sets _BPXK_AUTOCVT=ON on z/OS so that /bin/sh can read this
+# ASCII file at all (without it: "FSUM7332 syntax error"). Clear it
+# before running the shell under test, or the shell's own I/O would be
+# converted as well and the decode below would convert twice. Measured
+# on z/OS: the shell writes IBM-1047 with this unset.
+unset _BPXK_AUTOCVT
+
 shell=$1
 shift
 

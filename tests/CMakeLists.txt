@@ -12,7 +12,7 @@
 # decoded before it is matched against these ASCII expectations.
 # ZKSH_DECODE is empty on hosts whose shell already writes ASCII.
 set(ZKSH_TEST_COMMAND
-  ${CMAKE_COMMAND} -E env ZKSH_DECODE=${ZKSH_DECODE}
+  ${CMAKE_COMMAND} -E env ZKSH_DECODE=${ZKSH_DECODE} ${ZKSH_TEST_ENV}
   ${ZKSH_TEST_SHELL} ${CMAKE_CURRENT_SOURCE_DIR}/run-c.sh $<TARGET_FILE:zksh>)
 
 add_test(NAME smoke_print COMMAND ${ZKSH_TEST_COMMAND} -c "print hello")
