@@ -87,7 +87,20 @@ endif()
 # Override with -DZKSH_CURSES_PREFIX=<pkgdir> or set both
 # -DCURSES_INCLUDE_PATH=... and -DCURSES_LIBRARY=... directly.
 
-if(ZKSH_EDITOR AND (NOT CURSES_INCLUDE_PATH OR NOT CURSES_LIBRARY))
+# CMake reads this file at project() time, before CMakeLists.txt has
+# declared its options, so ZKSH_EDITOR is not defined yet here. Treat
+# "undefined" as ON -- that is the CMakeLists default -- and only skip
+# the search when the user explicitly turned line editing off. Testing
+# `if(ZKSH_EDITOR)` here skips the search on every normal configure,
+# which loses curses, turns ZKSH_EDITOR off, and then trips
+# config.h:25 ("Define either EMACS or VI.") during the build.
+if(DEFINED ZKSH_EDITOR)
+  set(_zksh_want_curses ${ZKSH_EDITOR})
+else()
+  set(_zksh_want_curses ON)
+endif()
+
+if(_zksh_want_curses AND (NOT CURSES_INCLUDE_PATH OR NOT CURSES_LIBRARY))
   set(_zksh_curses_roots "")
   if(ZKSH_CURSES_PREFIX)
     list(APPEND _zksh_curses_roots "${ZKSH_CURSES_PREFIX}")
