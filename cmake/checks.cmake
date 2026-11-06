@@ -126,8 +126,11 @@ if(ZKSH_FLOCK_OK)
   set(HAVE_FLOCK 1)
 endif()
 
-# strsignal(): POSIX.1-2008. Present on z/OS 3.2, but behind
-# _POSIX_C_SOURCE, and a static link may still not resolve it.
+# strsignal(): POSIX.1-2008. Present on z/OS 3.2 behind
+# _POSIX_C_SOURCE, but it is a Language Environment service, so a
+# static link need not resolve it. check_c_source_compiles LINKS, which
+# is what matters here: a declaration that compiles and then fails to
+# link is the failure this probe exists to catch.
 set(HAVE_STRSIGNAL 0)
 check_c_source_compiles("
   #include <string.h>

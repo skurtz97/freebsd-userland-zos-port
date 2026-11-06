@@ -59,10 +59,22 @@
  *   <sys/wait.h>    pid bookkeeping is unchanged (jobs.c waitpid)
  */
 
+#if defined(__MVS__)
+/* setenv() on z/OS comes from <env.h> under the POSIX.1a form. The
+ * SUSv3 form (stdlib.h + _UNIX03_SOURCE) is not usable here: it emits
+ * the __-prefixed LE entry points, which a statically linked program
+ * cannot resolve (binder IEW2456E). The _POSIX1_SOURCE define must
+ * come before any system header, hence the top of the file. */
+#define _POSIX1_SOURCE 2
+#endif /* __MVS__ */
+
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <stdlib.h>
+#if defined(__MVS__)
+#include <env.h>
+#endif /* __MVS__ */
 #include <stdint.h>
 #include <string.h>
 #include <unistd.h>
