@@ -1,0 +1,131 @@
+zksh -- working notes for automated contributors
+
+Project rules are in README.md and docs/direction.md. This file records
+how to work here without wasting cycles, and the mistakes that have
+already cost time. Add a line every time something bites.
+
+
+1. WHAT THIS IS
+
+oksh 7.9 (pdksh lineage, ksh88) ported to z/OS. The base is upstream
+oksh with a small, documented set of edits; do not restructure it.
+Every edit to a base file is recorded in docs/port.md in the same
+commit. The language is a closed set (docs/language.md) -- do not add a
+construct because it is convenient; add it to the document first.
+
+Companion repos, do not confuse them:
+  ~/src/oksh   upstream oksh + the zos-spawn branch this tree came from
+  ~/src/zash   the ash reference implementation, separate remote,
+               NOT vendored here
+  ~/src/zrx    unrelated (REXX interpreter)
+
+
+2. BUILD AND TEST
+
+  ./configure --prefix=/usr/local && make -j8     # Linux
+  ./zksh -c 'print hello'
+  make check                                      # if present
+
+There is no test runner yet beyond oksh's own checked-in tests; adding
+one is an open item. On z/OS: ./configure with ibm-clang64 first on
+PATH, then make. THE Z/OS BUILD HAS NOT BEEN RUN. Until it has, any
+z/OS claim in docs is from documentation and must say so (mark it
+VERIFY in the source comment, as zos_spawn.c already does).
+
+
+3. CHARACTER SET -- THE BIG ONE
+
+z/OS is EBCDIC (IBM-1047). Linux is ASCII/UTF-8. Both must work.
+
+  - 'a'..'z' are NOT contiguous in EBCDIC; '0'..'9' ARE.
+  - In EBCDIC letters sort BEFORE digits; ASCII sorts digits first.
+  - char is UNSIGNED on z/OS. Index tables with (unsigned char)c.
+  - Never write a raw control byte as 'X'; use "\x41" style escapes.
+  - A file's character set is its chtag, not its bytes. Generated or
+    created files need a tag; see zash's sys_zos.c for the measured
+    behaviour (_ENCODE_FILE_NEW, IBM-1047 for pipes, not ISO8859-1;
+    zoslib's ISO8859-1 choice leaves EBCDIC readers seeing ASCII).
+  - zash's word representation (raw text + parallel origin-mark array)
+    avoids in-band control bytes entirely. oksh uses in-band bytes
+    (QUOTE etc.); that is the main EBCDIC risk in this base.
+  - Do not use $'\r' in scripts that must run under the system
+    /bin/sh on z/OS -- it has no $'...' at all.
+
+
+4. C PORTABILITY
+
+  - C99/C11, no GNU extensions. Open XL C/C++ 2.1 is clang-based.
+  - oksh is old code: K&R-adjacent idioms, implicit int assumptions in
+    places. Fix with the full warning set, not bare clang.
+  - z/OS specifics live in zos_spawn.c and (to be added)
+    zos_builtins.c / sys_zos.c, behind __MVS__ / HAVE_ZOS_SPAWN.
+
+z/OS hazards:
+  - fork() copies the whole address space; use spawnp() for external
+    commands. Pipelines/coproc/comsub stay on fork (spawn children
+    cannot close sibling pipe fds).
+  - isatty()/tcgetattr() do not work under TSO (no controlling
+    terminal). OMVS is line mode only.
+  - A child forked from a threaded process may only call
+    async-signal-safe functions before exec. The shell is single
+    threaded; keep it so.
+  - MVS allocations and data set opens are NOT inherited across
+    fork/exec.
+
+
+5. DOCUMENTATION RULE
+
+Docs change in the same commit as the code: docs/status.md (what
+works), docs/port.md (base edits), docs/zos-changes.md (new
+behaviour), docs/language.md (anything a parser now accepts).
+
+
+6. RECURRING MISTAKES
+
+  - Claiming a measurement without taking it. budget.md numbers are
+    measured; "editor code 5,715" was written from memory once and was
+    wrong by 9 lines. Measure, then write.
+  - Confusing oksh, pdksh and AT&T ksh88 when describing lineage.
+  - Writing ${v/pat/rep} in a test: pdksh does not have it. It is a
+    planned addition, not existing behaviour.
+  - Editing a file in the build tree and forgetting that `configure`
+    regenerates the Makefile; object lists live there, and a new .c
+    needs adding to configure's OBJS or it is never compiled.
+  - Building in /tmp with bare clang and calling it done.
+  - Trusting a stale binary: recompile in the same command line as the
+    run.
+
+
+7. Z/OS FACTS WORTH KEEPING
+
+  - Profiles: /etc/profile -> $HOME/.profile -> $ENV. `sh -L` is a
+    login shell on z/OS (uppercase L).
+  - No ksh is installed on z/OS: only the System V sh and tcsh.
+  - spawnp() (BPX1SPN) never forks. _BPX_SHAREAS=YES makes fork()
+    produce a shared daughter. SPAWN_SETGROUP|SPAWN_NEWPGROUP gives
+    race-free process-group creation with ctlttyfd.
+  - chcp changes the terminal conversion; not under OMVS.
+  - zopen provides make, bash, gawk, ncurses (widec), but not libedit.
+  - Reference docs on this machine:
+      /home/skurtz/docs/mainframe/txt/zos-c-runtime-library.txt
+      /home/skurtz/docs/mainframe/txt/zos-unix-command-reference-bpxa500_v3r2.txt
+      /home/skurtz/docs/mainframe/txt/zos-unix-users-guide-bpxa400_v3r2.txt
+
+
+8. PROVENANCE
+
+- Base: ibara/oksh tag oksh-7.9, commit 15f69e4 (2026-06-10).
+- zos_spawn.c and doc/ZOS-NOTES.md: local work, now in this tree,
+  first committed as 3d04c43 on branch zos-spawn in ~/src/oksh.
+- zash: chars GNU/BSD independent, see its DESIGN.md; ideas only,
+  nothing copied yet.
+- FreeBSD bin/sh pin (only if a file is ever needed for reference):
+  freebsd/freebsd-src release/15.1.0, 96841ea08dcfa84b954a32dc5ae1a26c28966cf4.
+
+
+9. BACKUPS
+
+The previous project tree was deleted on 2026-11-05 with its whole git
+history. Never leave uncommitted work in a tree without a remote.
+This tree's remote is the first thing to set up; push before doing
+anything destructive.

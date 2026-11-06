@@ -1,0 +1,19 @@
+# Character-set and line-ending policy.
+#
+# The source is stored UTF-8/ASCII with LF and must stay readable by
+# z/OS compilers when tagged. Do not mark anything "identity": an
+# untagged file on z/OS is read as EBCDIC.
+#
+# There is no chtag helper in this repo yet; tagging is the installer's
+# job (see docs/zos-changes.md). A file's character set is its tag,
+# never its bytes.
+*           text=auto eol=lf
+*.c         text eol=lf
+*.h         text eol=lf
+*.md        text eol=lf
+*.txt       text eol=lf
+*.sh        text eol=lf
+configure   text eol=lf
+Makefile.in text eol=lf
+.gitattributes text eol=lf
+.gitignore  text eol=lf

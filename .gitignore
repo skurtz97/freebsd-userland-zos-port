@@ -1,0 +1,15 @@
+# Build products. oksh's configure writes a Makefile; objects, the
+# binaries and the .flags stamp are all generated.
+*.o
+Makefile
+.flags
+oksh
+zksh
+sh
+/ksh
+/compile_commands.json
+.cache/
+.vscode/
+.idea/
+*.swp
+*~
