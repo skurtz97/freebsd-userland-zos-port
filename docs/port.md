@@ -156,3 +156,5 @@ declaration.
   `release/15.1.0`, `96841ea08dcfa84b954a32dc5ae1a26c28966cf4`.
 
 | P25 | `trap.c` | `strcasecmp()`/`strncasecmp()` were undeclared | **done** -- added `<strings.h>`, which is where POSIX declares them. oksh never noticed: glibc's `<string.h>` declares them under `_GNU_SOURCE`, and zopen's shared include tree happened to declare them too. Narrowing the ncurses include path (P9) removed the accident and the z/OS build said so: `call to undeclared library function 'strcasecmp' ... ISO C99 and later do not support implicit function declarations` |
+
+| P26 | `portable.h`, `cmake/checks.cmake` | `reallocarray()` was undeclared in `history.c` once `HAVE_REALLOCARRAY` became true | **done** -- "the symbol links" and "the headers declare it" are different questions. z/OS with zoslib answers yes then no: the archive provides `reallocarray`, no header declares it. Added `HAVE_REALLOCARRAY_DECL` (compile-only probe) and `portable.h` declares the prototype unless both macros are set. Found immediately after P25 by fixing the probe-skipping bug in `check_function_exists` |

@@ -147,6 +147,20 @@ endforeach()
 
 set(CMAKE_REQUIRED_LIBRARIES "${_zksh_saved_required_libraries}")
 
+# reallocarray() again, because "the symbol links" and "the headers
+# declare it" are different questions and z/OS answers them differently:
+# zoslib provides the symbol, and no header on the system declares it.
+# portable.h needs to know both (P26).
+set(HAVE_REALLOCARRAY_DECL 0)
+check_c_source_compiles("
+  #include <stdlib.h>
+  #include <sys/types.h>
+  int main(void) { (void)reallocarray(0, 1, 1); return 0; }"
+  ZKSH_REALLOCARRAY_DECL_OK)
+if(ZKSH_REALLOCARRAY_DECL_OK)
+  set(HAVE_REALLOCARRAY_DECL 1)
+endif()
+
 # flock(): BSD 4.4, in <sys/file.h>. z/OS has it, but only under
 # _XPLATFORM_SOURCE.
 set(HAVE_FLOCK 0)

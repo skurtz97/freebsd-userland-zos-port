@@ -260,9 +260,15 @@ int asprintf(char **str, const char *fmt, ...);
 size_t confstr(int, char *, size_t);
 #endif /* !HAVE_CONFSTR */
 
-#ifndef HAVE_REALLOCARRAY
+/* Two different questions, so two macros. HAVE_REALLOCARRAY means the
+ * symbol links; HAVE_REALLOCARRAY_DECL means <stdlib.h> declares it.
+ * z/OS with zoslib is the case that separates them: the symbol is there
+ * and the headers never declare it, so a single macro left either an
+ * implicit declaration (build error) or a missing prototype.
+ * docs/port.md P26. */
+#if !defined(HAVE_REALLOCARRAY) || !defined(HAVE_REALLOCARRAY_DECL)
 void *reallocarray(void *, size_t, size_t);
-#endif /* !HAVE_REALLOCARRAY */
+#endif
 
 #ifndef HAVE_STRAVIS
 int stravis(char **, const char *, int);
