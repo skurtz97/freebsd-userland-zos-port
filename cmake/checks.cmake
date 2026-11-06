@@ -28,21 +28,27 @@ if(ZKSH_ZOS)
 endif()
 
 # ---- __dead ----------------------------------------------------------
+# Does the system already provide __dead (z/OS <sys/cdefs.h> may)?
+# A successful compile here means "system has it, do not define ours".
+# The check must not rely on a bare __dead compiling, which is always
+# false.
 
-set(HAVE___DEAD 0)
+set(ZKSH_HAVE_SYSTEM_DEAD 0)
 check_c_source_compiles("
-  int main(int argc, char **argv) { (void)argc; (void)argv; return 0; }
-  __dead void f(void);" NO_DEAD)
-if(NO_DEAD)
-  set(HAVE___DEAD 1)
-else()
-  # z/OS and anything with __cdefs may already give us one.
+  #include <sys/cdefs.h>
+  __dead void zksh_probe_dead(void);
+  int main(void) { return 0; }" ZKSH_SYSTEM_DEAD_OK)
+if(ZKSH_SYSTEM_DEAD_OK)
+  set(ZKSH_HAVE_SYSTEM_DEAD 1)
+endif()
+# Fallback: some systems define it in stdlib.h (BSD).
+if(NOT ZKSH_HAVE_SYSTEM_DEAD)
   check_c_source_compiles("
-    #include <sys/cdefs.h>
-    __dead void f(void);
-    int main(void) { return 0; }" HAS_CDEFS_DEAD)
-  if(HAS_CDEFS_DEAD)
-    set(HAVE___DEAD 1)
+    #include <stdlib.h>
+    __dead void zksh_probe_dead(void);
+    int main(void) { return 0; }" ZKSH_STDLIB_DEAD_OK)
+  if(ZKSH_STDLIB_DEAD_OK)
+    set(ZKSH_HAVE_SYSTEM_DEAD 1)
   endif()
 endif()
 

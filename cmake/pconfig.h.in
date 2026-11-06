@@ -9,9 +9,13 @@
 #ifndef ZKSH_PCONFIG_H
 #define ZKSH_PCONFIG_H
 
+/* __dead, defined only if the system does not already have one. The
+ * guard is on the definition itself: a system with __dead in
+ * <sys/cdefs.h> keeps its own, and everything else gets the GNU
+ * attribute. */
 #ifndef __dead
-#cmakedefine01 HAVE___DEAD
-#if HAVE___DEAD
+#cmakedefine ZKSH_HAVE_SYSTEM_DEAD
+#ifndef ZKSH_HAVE_SYSTEM_DEAD
 #define __dead __attribute__((__noreturn__))
 #endif
 #endif
