@@ -110,10 +110,15 @@ endif()
 
 if(ZKSH_ZOS)
   target_sources(zksh PRIVATE ${ZKSH_SRC_DIR}/zos/zos_spawn.c)
-  # _ALL_SOURCE: the z/OS "make everything visible" switch.
-  # _XPLATFORM_SOURCE: BSD/X-Open interfaces such as flock() in
-  # <sys/file.h> and the timeradd() family in <sys/time.h>.
-  target_compile_definitions(zksh PRIVATE _ALL_SOURCE _XPLATFORM_SOURCE)
+  # The z/OS headers gate interfaces on a stack of feature macros, and
+  # each one hides different things:
+  #   _ALL_SOURCE       the broad "make everything visible" switch
+  #   _XPLATFORM_SOURCE BSD/X-Open: flock() in <sys/file.h>, the
+  #                     timeradd() family in <sys/time.h>
+  #   _OPEN_SYS         z/OS UNIX interfaces: setgroups() in <grp.h>
+  # docs/port.md P13 records which interface needed which.
+  target_compile_definitions(zksh PRIVATE
+    _ALL_SOURCE _XPLATFORM_SOURCE _OPEN_SYS)
 endif()
 
 # ---- Install ---------------------------------------------------------

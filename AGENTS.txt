@@ -22,15 +22,43 @@ Companion repos, do not confuse them:
 
 2. BUILD AND TEST
 
-  ./configure --prefix=/usr/local && make -j8     # Linux
-  ./zksh -c 'print hello'
-  make check                                      # if present
+  ./configure --release && cmake --build build -j8        # Linux
+  ./build/zksh -c 'print hello'
+  ctest --test-dir build --output-on-failure               # 4 smoke tests
 
-There is no test runner yet beyond oksh's own checked-in tests; adding
-one is an open item. On z/OS: ./configure with ibm-clang64 first on
-PATH, then make. THE Z/OS BUILD HAS NOT BEEN RUN. Until it has, any
-z/OS claim in docs is from documentation and must say so (mark it
-VERIFY in the source comment, as zos_spawn.c already does).
+  # z/OS (ibm-clang64 found automatically; cmake+ninja from zopen)
+  ./configure --zos --release && cmake --build build -j8
+  ./build/zksh -c 'print hello'
+
+The z/OS build HAS now been attempted and compiles all but the last few
+files; docs/port.md records every fix. Anything not yet built on z/OS or
+not yet run on z/OS is still a claim from documentation: mark it VERIFY
+in the source comment, as zos_spawn.c does.
+
+BEWARE the checks cache. cmake/checks.cmake probes are sticky; if a
+probe is changed, `rm -rf build` before reconfiguring, or a stale answer
+from the old probe survives.
+
+
+2a. Z/OS FEATURE MACROS -- CHECK THIS FIRST
+
+z/OS headers gate interfaces on a stack of macros, and each hides a
+different set. A function "missing" on z/OS is usually a missing macro.
+
+  _ALL_SOURCE        the broad switch
+  _XPLATFORM_SOURCE  BSD/X-Open: flock(), timeradd()/timersub()
+  _OPEN_SYS          z/OS UNIX: setgroups()
+
+The build passes all three (CMakeLists.txt, ZKSH_ZOS) and the probes
+pass the same three (cmake/checks.cmake). If you add a probe, add the
+macros to both or the probe lies. Confirm against the CRTL reference in
+~/docs/mainframe/txt/zos-c-runtime-library.txt, which states the exact
+`#define` line each function needs -- do not guess, the docs are local.
+
+Features z/OS genuinely does not have, verified in those docs:
+  <sys/param.h>, <paths.h>, confstr()'s _PATH_* set, WCOREDUMP(),
+  timerclear() (but timeradd/timersub exist), struct stat's st_mtim
+  (only st_mtime), the sig_t typedef, _POSIX_VDISABLE.
 
 
 3. CHARACTER SET -- THE BIG ONE

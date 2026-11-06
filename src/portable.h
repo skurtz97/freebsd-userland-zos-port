@@ -13,10 +13,14 @@
 #include <sys/file.h>
 #include <sys/types.h>
 
-#include <grp.h>
 #include <stdint.h>
 #include <stdlib.h>
 #endif /* __linux__ || __CYGWIN__ || __midipix__ */
+
+/* <grp.h> declares setgroups(), used by misc.c when dropping
+ * privileges. Include it everywhere: on z/OS the declaration is gated
+ * on _OPEN_SYS, which the build defines. */
+#include <grp.h>
 
 #ifdef HAVE_PATHS_H
 #include <paths.h>

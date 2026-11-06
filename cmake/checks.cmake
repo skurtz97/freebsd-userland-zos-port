@@ -31,7 +31,8 @@ endif()
 if(ZKSH_ZOS)
   # Must match the target's definitions, or a probe reports a function
   # missing while the build can see it.
-  list(APPEND CMAKE_REQUIRED_DEFINITIONS -D_ALL_SOURCE -D_XPLATFORM_SOURCE)
+  list(APPEND CMAKE_REQUIRED_DEFINITIONS
+    -D_ALL_SOURCE -D_XPLATFORM_SOURCE -D_OPEN_SYS)
 endif()
 # Match CMAKE_C_STANDARD 99 / CMAKE_C_EXTENSIONS ON in CMakeLists.txt.
 list(APPEND CMAKE_REQUIRED_FLAGS -std=gnu99)
