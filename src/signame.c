@@ -36,122 +36,120 @@
 #include <unistd.h>
 
 static const struct {
-	int sig;
-	const char *name;
+  int sig;
+  const char *name;
 } signame[] = {
-	{ 0, "Signal 0" },
+    {0, "Signal 0"},
 #ifdef SIGHUP
-	{ SIGHUP, "HUP" },
+    {SIGHUP, "HUP"},
 #endif
 #ifdef SIGINT
-	{ SIGINT, "INT" },
+    {SIGINT, "INT"},
 #endif
 #ifdef SIGQUIT
-	{ SIGQUIT, "QUIT" },
+    {SIGQUIT, "QUIT"},
 #endif
 #ifdef SIGILL
-	{ SIGILL, "ILL" },
+    {SIGILL, "ILL"},
 #endif
 #ifdef SIGTRAP
-	{ SIGTRAP, "TRAP" },
+    {SIGTRAP, "TRAP"},
 #endif
 #ifdef SIGABRT
-	{ SIGABRT, "ABRT" },
+    {SIGABRT, "ABRT"},
 #endif
 #ifdef SIGEMT
-	{ SIGEMT, "EMT" },
+    {SIGEMT, "EMT"},
 #endif
 #ifdef SIGFPE
-	{ SIGFPE, "FPE" },
+    {SIGFPE, "FPE"},
 #endif
 #ifdef SIGKILL
-	{ SIGKILL, "KILL" },
+    {SIGKILL, "KILL"},
 #endif
 #ifdef SIGBUS
-	{ SIGBUS, "BUS" },
+    {SIGBUS, "BUS"},
 #endif
 #ifdef SIGSEGV
-	{ SIGSEGV, "SEGV" },
+    {SIGSEGV, "SEGV"},
 #endif
 #ifdef SIGSYS
-	{ SIGSYS, "SYS" },
+    {SIGSYS, "SYS"},
 #endif
 #ifdef SIGPIPE
-	{ SIGPIPE, "PIPE" },
+    {SIGPIPE, "PIPE"},
 #endif
 #ifdef SIGALRM
-	{ SIGALRM, "ALRM" },
+    {SIGALRM, "ALRM"},
 #endif
 #ifdef SIGTERM
-	{ SIGTERM, "TERM" },
+    {SIGTERM, "TERM"},
 #endif
 #ifdef SIGURG
-	{ SIGURG, "URG" },
+    {SIGURG, "URG"},
 #endif
 #ifdef SIGSTOP
-	{ SIGSTOP, "STOP" },
+    {SIGSTOP, "STOP"},
 #endif
 #ifdef SIGTSTP
-	{ SIGTSTP, "TSTP" },
+    {SIGTSTP, "TSTP"},
 #endif
 #ifdef SIGCONT
-	{ SIGCONT, "CONT" },
+    {SIGCONT, "CONT"},
 #endif
 #ifdef SIGCHLD
-	{ SIGCHLD, "CHLD" },
+    {SIGCHLD, "CHLD"},
 #endif
 #ifdef SIGTTIN
-	{ SIGTTIN, "TTIN" },
+    {SIGTTIN, "TTIN"},
 #endif
 #ifdef SIGTTOU
-	{ SIGTTOU, "TTOU" },
+    {SIGTTOU, "TTOU"},
 #endif
 #ifdef SIGIO
-	{ SIGIO, "IO" },
+    {SIGIO, "IO"},
 #endif
 #ifdef SIGXCPU
-	{ SIGXCPU, "XCPU" },
+    {SIGXCPU, "XCPU"},
 #endif
 #ifdef SIGXFSZ
-	{ SIGXFSZ, "XFSZ" },
+    {SIGXFSZ, "XFSZ"},
 #endif
 #ifdef SIGVTALRM
-	{ SIGVTALRM, "VTALRM" },
+    {SIGVTALRM, "VTALRM"},
 #endif
 #ifdef SIGPROF
-	{ SIGPROF, "PROF" },
+    {SIGPROF, "PROF"},
 #endif
 #ifdef SIGWINCH
-	{ SIGWINCH, "WINCH" },
+    {SIGWINCH, "WINCH"},
 #endif
 #ifdef SIGINFO
-	{ SIGINFO, "INFO" },
+    {SIGINFO, "INFO"},
 #endif
 #ifdef SIGUSR1
-	{ SIGUSR1, "USR1" },
+    {SIGUSR1, "USR1"},
 #endif
 #ifdef SIGUSR2
-	{ SIGUSR2, "USR2" },
+    {SIGUSR2, "USR2"},
 #endif
 #ifdef SIGPWR
-	{ SIGPWR, "PWR" },
+    {SIGPWR, "PWR"},
 #endif
 #ifdef SIGSTKFLT
-	{ SIGSTKFLT, "STKFLT" },
+    {SIGSTKFLT, "STKFLT"},
 #endif
 };
 
-const char *
-oksh_sig2str(int sig)
-{
-	int i;
+const char *oksh_sig2str(int sig) {
+  int i;
 
-	for (i = 0; i < sizeof(signame) / sizeof(*signame); i++) {
-		if (signame[i].sig == sig)
-			return signame[i].name;
-	}
+  for (i = 0; i < sizeof(signame) / sizeof(*signame); i++) {
+    if (signame[i].sig == sig)
+      return signame[i].name;
+  }
 
-	return "UNKNOWN";
+  return "UNKNOWN";
 }
 
 #endif /* !HAVE_SIGNAME */

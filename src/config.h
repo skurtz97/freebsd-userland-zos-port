@@ -22,7 +22,7 @@
  */
 
 #if !defined(EMACS) && !defined(VI)
-# error "Define either EMACS or VI."
+#error "Define either EMACS or VI."
 #endif
 
 #include "portable.h"

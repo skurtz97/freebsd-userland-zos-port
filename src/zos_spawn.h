@@ -9,11 +9,11 @@
 /* fwd decls to avoid dragging in the private jobs structs */
 struct ioword;
 
-typedef struct op	Op;
-typedef struct tbl	Tbl;
+typedef struct op Op;
+typedef struct tbl Tbl;
 
 #if defined(__MVS__)
-#define HAVE_ZOS_SPAWN	1
+#define HAVE_ZOS_SPAWN 1
 #endif
 
 #ifdef HAVE_ZOS_SPAWN
@@ -37,13 +37,13 @@ void zos_spawn_init(void);
  *         SIGCHLD and return (rv == 0).
  *   1  -> fall back to the caller's normal fork() path.
  */
-int zos_spawn_child(int flags, struct op *t, int tty_fd,
-    pid_t *pgrp_out, pid_t *pid_out);
+int zos_spawn_child(int flags, struct op *t, int tty_fd, pid_t *pgrp_out,
+                    pid_t *pid_out);
 
 #else /* !HAVE_ZOS_SPAWN */
 
-#define zos_spawn_init()	((void) 0)
-#define zos_spawn_child(flags, t, tty_fd, pgrp, pidp)	1
+#define zos_spawn_init() ((void)0)
+#define zos_spawn_child(flags, t, tty_fd, pgrp, pidp) 1
 
 #endif /* HAVE_ZOS_SPAWN */
 

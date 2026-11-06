@@ -19,11 +19,9 @@
 
 #include "portable.h"
 
-char *
-oksh_strsignal(int sig)
-{
-	(void) sig;
-	return NULL;
+char *oksh_strsignal(int sig) {
+  (void)sig;
+  return NULL;
 }
 
 #endif /* !HAVE_STRSIGNAL */

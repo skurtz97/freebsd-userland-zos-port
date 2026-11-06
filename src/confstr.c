@@ -39,11 +39,9 @@
 
 #include "portable.h"
 
-size_t
-confstr(int name, char *buf, size_t len)
-{
+size_t confstr(int name, char *buf, size_t len) {
 
-	return (strlcpy(buf, _PATH_STDPATH, len) + 1);
+  return (strlcpy(buf, _PATH_STDPATH, len) + 1);
 }
 
 #endif /* !HAVE_CONFSTR */

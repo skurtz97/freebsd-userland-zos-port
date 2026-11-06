@@ -8,22 +8,12 @@
  * POSIX character class support for fnmatch() and glob().
  */
 static const struct cclass {
-	const char *name;
-	int (*isctype)(int);
-} cclasses[] = {
-	{ "alnum",	isalnum },
-	{ "alpha",	isalpha },
-	{ "blank",	isblank },
-	{ "cntrl",	iscntrl },
-	{ "digit",	isdigit },
-	{ "graph",	isgraph },
-	{ "lower",	islower },
-	{ "print",	isprint },
-	{ "punct",	ispunct },
-	{ "space",	isspace },
-	{ "upper",	isupper },
-	{ "xdigit",	isxdigit },
-	{ NULL,		NULL }
-};
+  const char *name;
+  int (*isctype)(int);
+} cclasses[] = {{"alnum", isalnum}, {"alpha", isalpha}, {"blank", isblank},
+                {"cntrl", iscntrl}, {"digit", isdigit}, {"graph", isgraph},
+                {"lower", islower}, {"print", isprint}, {"punct", ispunct},
+                {"space", isspace}, {"upper", isupper}, {"xdigit", isxdigit},
+                {NULL, NULL}};
 
-#define NCCLASSES	(sizeof(cclasses) / sizeof(cclasses[0]) - 1)
+#define NCCLASSES (sizeof(cclasses) / sizeof(cclasses[0]) - 1)

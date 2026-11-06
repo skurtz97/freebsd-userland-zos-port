@@ -22,15 +22,13 @@
 #include <sys/auxv.h>
 #endif
 
-int
-oksh_issetugid(void)
-{
+int oksh_issetugid(void) {
 
 #if defined(HAVE_ISSETUGID)
-	return issetugid();
+  return issetugid();
 #elif defined(HAVE_GETAUXVAL)
-	return (int) getauxval(AT_SECURE);
+  return (int)getauxval(AT_SECURE);
 #else
-	return 0;
+  return 0;
 #endif
 }
