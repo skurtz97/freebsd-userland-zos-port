@@ -1,0 +1,85 @@
+# The build
+
+CMake and Ninja are the build on both hosts. They run on this z/OS now
+(the zrx project dropped them in 2026-11-01 because zopen's CMake and
+Ninja did not run with Open XL 2.1's C++ runtime; that no longer
+holds).
+
+**Status:** Phase 0. The Linux build is verified; the z/OS toolchain
+file is written but has not been used on z/OS.
+
+## Quick start
+
+```sh
+./configure                 # shim over cmake -B build
+cmake --build build -j8
+./build/zksh -c 'print hello'
+ctest --test-dir build
+```
+
+## Presets
+
+| Command | Result |
+| ------- | ------ |
+| `./configure` | Debug, warnings on, build/ |
+| `./configure --release` | Release, build/ |
+| `./configure --enable-small` | `-DSMALL` |
+| `./configure --disable-curses` | no line editing |
+| `./configure --cc=clang` | explicit compiler |
+| `./configure --build-dir=build-x` | out of tree, as many as you like |
+| `./configure --zos` | z/OS toolchain file, `-DZKSH_ZOS=ON` |
+| `./configure --ninja` | Ninja generator |
+
+By hand:
+
+```sh
+cmake -S . -B build-san -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+cmake --build build-san -j8
+```
+
+## What was replaced
+
+oksh's `configure` is a 1,445-line `sh` script that probes the
+compiler and then writes a `Makefile` and `pconfig.h`, both into the
+source directory, with `-w` (all warnings off) in the default flags.
+It is kept verbatim in `vendor/oksh/configure` as the reference for
+what each probe does.
+
+| oksh configure | now |
+| -------------- | --- |
+| writes `pconfig.h` | `cmake/checks.cmake` + `cmake/pconfig.h.in` |
+| writes `Makefile` | `CMakeLists.txt` |
+| `-w` | `-Wall -Wextra`; `ZKSH_STRICT=ON` adds `-Werror` |
+| `-fuse-ld=lld` | not set; the toolchain default is used |
+| `-lcurses` probe | `find_package(Curses)`, wide ncurses on z/OS |
+| `-D_GNU_SOURCE` | set for Linux targets |
+| no z/OS branch | `cmake/toolchain-zos.cmake`, `ZKSH_ZOS` |
+
+## Two rules the checks follow
+
+1. **`__dead` is never defined unconditionally.** z/OS `<sys/cdefs.h>`
+   may provide it, and a redefinition is fatal. `cmake/pconfig.h.in`
+   guards it with `#ifndef __dead`.
+2. **Checks use the same feature-test macros as the build.** The first
+   CMake build failed on `setresuid`/`setresgid` because the checks
+   ran without `-D_GNU_SOURCE` while the build had it, so
+   `HAVE_SETRESUID` was 0 and the prototypes stayed hidden. Both now
+   include it.
+
+The `-w` removal immediately found real warnings in the base
+(`c_test.c`, `c_ulimit.c`, `emacs.c`, `c_sh.c`, `edit.c`). They are
+visible, not yet fixed; `ZKSH_STRICT` will not pass until they are.
+
+## z/OS
+
+```sh
+./configure --zos --release
+cmake --build build -j4
+```
+
+`cmake/toolchain-zos.cmake` selects `ibm-clang64`, `-m64`,
+`-march=z16`, `CMAKE_SYSTEM_NAME=z/OS`, and pretends nothing about the
+zopen path it does not know. Lines marked `VERIFY` are from
+documentation, not from a successful build, and the first build
+should correct them.
