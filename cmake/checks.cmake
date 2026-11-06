@@ -103,9 +103,6 @@ endif()
 
 # ---- Functions oksh uses if present --------------------------------
 
-# Each HAVE_x is set to 0 before the check, so that a cached answer from
-# an older configure, or a check that errors out instead of answering
-# "no", cannot leave a feature switched on that is not there.
 set(ZKSH_FUNCS asprintf getauxval reallocarray setresgid setresuid
     strlcat strlcpy strtonum)
 # confstr is left out on z/OS. It compiles and links, but its _CS_PATH
@@ -117,19 +114,31 @@ if(NOT ZKSH_ZOS)
 endif()
 
 # The probes must link the same libraries as the target. On z/OS the
-# shell links zoslib, which supplies reallocarray, and a probe that
-# does not link it answers "absent" -- so src/reallocarray.c is
-# compiled, and then the binder reports the symbol defined twice
-# (IEW2480W). Same rule as the feature-test macros: what the check
-# sees must be what the build gets.
+# shell links zoslib, which supplies reallocarray; a probe that does
+# not link it answers "absent", src/reallocarray.c is compiled, and the
+# binder then reports the symbol defined twice (IEW2480W). Same rule as
+# the feature-test macros: what the check sees must be what the build
+# gets.
 set(_zksh_saved_required_libraries "${CMAKE_REQUIRED_LIBRARIES}")
 if(ZKSH_ZOS AND ZKSH_CURSES_LINK_ITEMS)
   list(APPEND CMAKE_REQUIRED_LIBRARIES ${ZKSH_CURSES_LINK_ITEMS})
 endif()
 
+# Each result variable is UNSET before its check, never set. CMake's
+# check_function_exists() runs only when the result variable is
+# undefined ("if(NOT DEFINED ...)" at the top of the module), so
+# pre-setting HAVE_x to 0 to guard against a stale cached answer
+# skipped the probe instead: every one of these was reported absent on
+# every platform, and oksh's own fallbacks were compiled
+# unconditionally. Measured 2026-11-06: HAVE_STRLCAT was undef on
+# Fedora, whose glibc provides it.
+#
+# The stale-cache guard is the unset(): it clears both the normal
+# variable and the INTERNAL cache entry the probe writes.
 foreach(fn ${ZKSH_FUNCS})
   string(TOUPPER ${fn} FN_UC)
-  set(HAVE_${FN_UC} 0)
+  unset(HAVE_${FN_UC})
+  unset(HAVE_${FN_UC} CACHE)
   check_function_exists(${fn} HAVE_${FN_UC})
   if(NOT HAVE_${FN_UC})
     set(HAVE_${FN_UC} 0)
