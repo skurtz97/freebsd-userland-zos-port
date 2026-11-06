@@ -105,20 +105,27 @@ else()
 endif()
 
 # ---- z/OS layer ------------------------------------------------------
-# src/zos/ holds our code. zos_spawn.c is the spawnp() layer; the rest
-# is being merged from zash (docs/merge.md, phase 1).
+# src/zos/ holds zash code still being merged (docs/merge.md, phase 1).
+# It is NOT globbed into the build: src/zos_builtins.c is a donor that
+# has not been adapted to oksh structures yet.
+
 
 if(ZKSH_ZOS)
-  target_sources(zksh PRIVATE ${ZKSH_SRC_DIR}/zos/zos_spawn.c)
+  # zos_spawn.c lives at src/ root, not src/zos/, so that main.c and
+  # jobs.c can #include "zos_spawn.h" without an extra -I.
+  target_sources(zksh PRIVATE ${ZKSH_SRC_DIR}/zos_spawn.c)
   # The z/OS headers gate interfaces on a stack of feature macros, and
   # each one hides different things:
   #   _ALL_SOURCE       the broad "make everything visible" switch
   #   _XPLATFORM_SOURCE BSD/X-Open: flock() in <sys/file.h>, the
   #                     timeradd() family in <sys/time.h>
   #   _OPEN_SYS         z/OS UNIX interfaces: setgroups() in <grp.h>
-  # docs/port.md P13 records which interface needed which.
+  #   _UNIX03_SOURCE    Single UNIX Specification v3: setenv() in
+  #                     <stdlib.h>
+  # docs/port.md records which interface needed which; AGENTS.txt 2a
+  # keeps the list.
   target_compile_definitions(zksh PRIVATE
-    _ALL_SOURCE _XPLATFORM_SOURCE _OPEN_SYS)
+    _ALL_SOURCE _XPLATFORM_SOURCE _OPEN_SYS _UNIX03_SOURCE)
 endif()
 
 # ---- Install ---------------------------------------------------------

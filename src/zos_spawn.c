@@ -55,7 +55,7 @@
  *
  * Headers on the z/OS sysroot that we rely on:
  *   <spawn.h>       spawnp(), struct inheritance, SPAWN_* flags
- *   <unistd.h>      setenv etc.
+ *   <stdlib.h>      setenv() -- needs _UNIX03_SOURCE on z/OS
  *   <sys/wait.h>    pid bookkeeping is unchanged (jobs.c waitpid)
  */
 

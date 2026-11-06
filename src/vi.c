@@ -627,13 +627,12 @@ vi_insert(int ch)
 	 */
 	if (first_insert && ch != CTRL('['))
 		saved_inslen = 0;
+	if (ch == '\n' || ch == '\r')
+		return 1;
+
 	switch (ch) {
 	case '\0':
 		return -1;
-
-	case '\r':
-	case '\n':
-		return 1;
 
 	case CTRL('['):
 		expanded = NONE;

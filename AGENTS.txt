@@ -48,8 +48,9 @@ different set. A function "missing" on z/OS is usually a missing macro.
   _ALL_SOURCE        the broad switch
   _XPLATFORM_SOURCE  BSD/X-Open: flock(), timeradd()/timersub()
   _OPEN_SYS          z/OS UNIX: setgroups()
+  _UNIX03_SOURCE     SUSv3: setenv() in <stdlib.h>
 
-The build passes all three (CMakeLists.txt, ZKSH_ZOS) and the probes
+The build passes all four (CMakeLists.txt, ZKSH_ZOS) and the probes
 pass the same three (cmake/checks.cmake). If you add a probe, add the
 macros to both or the probe lies. Confirm against the CRTL reference in
 ~/docs/mainframe/txt/zos-c-runtime-library.txt, which states the exact

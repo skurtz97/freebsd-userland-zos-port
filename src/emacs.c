@@ -1903,9 +1903,6 @@ x_e_putc(int c)
 		switch (c) {
 		case BEL:
 			break;
-		case '\r':
-		case '\n':
-			break;
 		case '\b':
 			x_col--;
 			break;
