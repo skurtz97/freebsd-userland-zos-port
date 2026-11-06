@@ -29,7 +29,9 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   list(APPEND CMAKE_REQUIRED_DEFINITIONS -D_GNU_SOURCE)
 endif()
 if(ZKSH_ZOS)
-  list(APPEND CMAKE_REQUIRED_DEFINITIONS -D_ALL_SOURCE)
+  # Must match the target's definitions, or a probe reports a function
+  # missing while the build can see it.
+  list(APPEND CMAKE_REQUIRED_DEFINITIONS -D_ALL_SOURCE -D_XPLATFORM_SOURCE)
 endif()
 # Match CMAKE_C_STANDARD 99 / CMAKE_C_EXTENSIONS ON in CMakeLists.txt.
 list(APPEND CMAKE_REQUIRED_FLAGS -std=gnu99)
@@ -112,6 +114,26 @@ foreach(fn asprintf confstr getauxval reallocarray setresgid setresuid
   endif()
 endforeach()
 
+# flock(): BSD 4.4, in <sys/file.h>. z/OS has it, but only under
+# _XPLATFORM_SOURCE.
+set(HAVE_FLOCK 0)
+check_c_source_compiles("
+  #include <sys/file.h>
+  int main(void) { return flock(0, LOCK_EX | LOCK_UN); }" ZKSH_FLOCK_OK)
+if(ZKSH_FLOCK_OK)
+  set(HAVE_FLOCK 1)
+endif()
+
+# WCOREDUMP(): a BSD macro over the wait status. Absent from POSIX and
+# from z/OS, where there is no core-dump flag in a wait status at all.
+set(HAVE_WCOREDUMP 0)
+check_c_source_compiles("
+  #include <sys/wait.h>
+  int main(void) { return WCOREDUMP(0); }" ZKSH_WCOREDUMP_OK)
+if(ZKSH_WCOREDUMP_OK)
+  set(HAVE_WCOREDUMP 1)
+endif()
+
 # ---- Types and structure members -------------------------------------
 
 # sig_t: portable.h typedefs its own when HAVE_SIG_T is 0, so a wrong
@@ -138,25 +160,43 @@ if(ZKSH_ST_MTIM_OK)
   set(HAVE_ST_MTIM 1)
 endif()
 
-# ---- timeradd / timersub ---------------------------------------------
-# These come from <sys/time.h> on BSD/Linux; the macro is not a symbol,
-# so test that a call compiles.
+# ---- timeradd / timersub / timerclear -------------------------------
+# These are macros, not symbols, so each is probed by compiling a use.
+# They are probed separately because a system can have some and not
+# others: z/OS has timeradd and timersub in <sys/time.h> under
+# _XPLATFORM_SOURCE but no timerclear.
 
+set(HAVE_TIMERADD 0)
+set(HAVE_TIMERSUB 0)
+set(HAVE_TIMERCLEAR 0)
 check_c_source_compiles("
   #include <sys/time.h>
   int main(void) {
     struct timeval a, b, c;
     timeradd(&a, &b, &c);
+    return c.tv_sec != 0;
+  }" ZKSH_TIMERADD_OK)
+if(ZKSH_TIMERADD_OK)
+  set(HAVE_TIMERADD 1)
+endif()
+check_c_source_compiles("
+  #include <sys/time.h>
+  int main(void) {
+    struct timeval a, b, c;
     timersub(&a, &b, &c);
+    return c.tv_sec != 0;
+  }" ZKSH_TIMERSUB_OK)
+if(ZKSH_TIMERSUB_OK)
+  set(HAVE_TIMERSUB 1)
+endif()
+check_c_source_compiles("
+  #include <sys/time.h>
+  int main(void) {
+    struct timeval c;
     timerclear(&c);
     return c.tv_sec != 0;
-  }" HAVE_TIMERMACROS)
-set(HAVE_TIMERADD 0)
-set(HAVE_TIMERSUB 0)
-set(HAVE_TIMERCLEAR 0)
-if(HAVE_TIMERMACROS)
-  set(HAVE_TIMERADD 1)
-  set(HAVE_TIMERSUB 1)
+  }" ZKSH_TIMERCLEAR_OK)
+if(ZKSH_TIMERCLEAR_OK)
   set(HAVE_TIMERCLEAR 1)
 endif()
 

@@ -36,9 +36,9 @@
 #include <mach/mach.h>
 #endif /* __APPLE__ */
 
-#if defined(_AIX) || defined(__sun)
+#if defined(_AIX) || defined(__sun) || defined(__MVS__)
 #include <sys/file.h>
-#endif /* _AIX || __sun */
+#endif /* _AIX || __sun || __MVS__ */
 
 #if defined(__HAIKU__)
 #include <stdint.h>
@@ -51,6 +51,14 @@
 /*
  * Defines
  */
+
+/* WCOREDUMP(): BSD encodes "dumped core" in bit 0200 of the wait
+ * status; POSIX and z/OS do not. jobs.c only uses it to decide what
+ * message to print, so on those systems reporting "no" is correct
+ * rather than merely harmless. */
+#ifndef HAVE_WCOREDUMP
+#define WCOREDUMP(x) 0
+#endif /* !HAVE_WCOREDUMP */
 
 /* POSIX says _POSIX_VDISABLE is 0 if the implementation does not
  * define it; z/OS's headers leave it out. */
@@ -94,6 +102,14 @@
 #endif
 #endif /* !_PW_NAME_LEN */
 
+/* history.c locks the history file with flock(). Where the system has
+ * none, locking degrades to nothing rather than failing the build:
+ * two concurrent shells may interleave history lines, which is the
+ * behaviour a shell without locking has anyway. */
+#ifndef HAVE_FLOCK
+#define flock(fd, op)	0
+#endif /* !HAVE_FLOCK */
+
 #ifndef LOCK_EX
 #define LOCK_EX	0x02
 #endif /* !LOCK_EX */
@@ -130,15 +146,11 @@
 #define VWERASE VWERSE
 #define VDISCARD VDISCRD
 #define _PATH_DEFPATH "/usr/bin:/etc:/usr/sbin:/usr/ucb:/usr/bin/X11:/sbin"
-#define WCOREFLAG 0200
-#define WCOREDUMP(x) ((x) & WCOREFLAG)
 #undef BAD
 #endif /* _AIX */
 
 #ifdef __HAIKU__
 #define _PATH_DEFPATH ".:/boot/home/config/non-packaged/bin:/boot/home/config/bin:/boot/system/non-packaged/bin:/bin:/boot/system/apps:/boot/system/preferences"
-#define WCOREFLAG 0200
-#define WCOREDUMP(x) ((x) & WCOREFLAG)
 #endif /* __HAIKU__ */
 
 #ifndef HAVE_SETRESGID

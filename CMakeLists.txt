@@ -110,7 +110,10 @@ endif()
 
 if(ZKSH_ZOS)
   target_sources(zksh PRIVATE ${ZKSH_SRC_DIR}/zos/zos_spawn.c)
-  target_compile_definitions(zksh PRIVATE _ALL_SOURCE)
+  # _ALL_SOURCE: the z/OS "make everything visible" switch.
+  # _XPLATFORM_SOURCE: BSD/X-Open interfaces such as flock() in
+  # <sys/file.h> and the timeradd() family in <sys/time.h>.
+  target_compile_definitions(zksh PRIVATE _ALL_SOURCE _XPLATFORM_SOURCE)
 endif()
 
 # ---- Install ---------------------------------------------------------
