@@ -147,19 +147,37 @@ endforeach()
 
 set(CMAKE_REQUIRED_LIBRARIES "${_zksh_saved_required_libraries}")
 
-# reallocarray() again, because "the symbol links" and "the headers
-# declare it" are different questions and z/OS answers them differently:
-# zoslib provides the symbol, and no header on the system declares it.
-# portable.h needs to know both (P26).
-set(HAVE_REALLOCARRAY_DECL 0)
-check_c_source_compiles("
-  #include <stdlib.h>
-  #include <sys/types.h>
-  int main(void) { (void)reallocarray(0, 1, 1); return 0; }"
-  ZKSH_REALLOCARRAY_DECL_OK)
-if(ZKSH_REALLOCARRAY_DECL_OK)
-  set(HAVE_REALLOCARRAY_DECL 1)
-endif()
+# "The symbol links" and "a header declares it" are two different
+# questions, and z/OS answers them differently: the shell links zoslib
+# (ncurses needs it), zoslib supplies symbols such as reallocarray,
+# setresuid and setresgid, and no system header declares them. Before
+# this, a HAVE_x that said "present" meant portable.h stopped
+# declaring the prototype and the build failed on an implicit
+# declaration (history.c, misc.c).
+#
+# So each function that links also gets HAVE_x_DECL: does a
+# declaration become visible after the usual headers? The expression
+# form is deliberate -- it fails to compile when the identifier is
+# undeclared and needs no knowledge of the prototype.
+set(_zksh_decl_headers "#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/types.h>")
+foreach(fn ${ZKSH_FUNCS})
+  string(TOUPPER ${fn} FN_UC)
+  if(HAVE_${FN_UC})
+    unset(HAVE_${FN_UC}_DECL)
+    unset(HAVE_${FN_UC}_DECL CACHE)
+    check_c_source_compiles("${_zksh_decl_headers}
+      int main(void) { (void)${fn}; return 0; }" ZKSH_${FN_UC}_DECL_OK)
+    if(ZKSH_${FN_UC}_DECL_OK)
+      set(HAVE_${FN_UC}_DECL 1)
+    else()
+      set(HAVE_${FN_UC}_DECL 0)
+    endif()
+  endif()
+endforeach()
 
 # flock(): BSD 4.4, in <sys/file.h>. z/OS has it, but only under
 # _XPLATFORM_SOURCE.

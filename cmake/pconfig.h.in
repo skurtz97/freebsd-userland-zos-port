@@ -24,9 +24,15 @@
 #cmakedefine HAVE_CONFSTR
 #cmakedefine HAVE_GETAUXVAL
 #cmakedefine HAVE_REALLOCARRAY
-/* The symbol links (above) versus the headers declare it. z/OS with
- * zoslib has the symbol and no declaration. */
+#cmakedefine HAVE_SETRESGID_DECL
+#cmakedefine HAVE_SETRESUID_DECL
+#cmakedefine HAVE_ASPRINTF_DECL
+#cmakedefine HAVE_CONFSTR_DECL
+#cmakedefine HAVE_GETAUXVAL_DECL
 #cmakedefine HAVE_REALLOCARRAY_DECL
+#cmakedefine HAVE_STRLCAT_DECL
+#cmakedefine HAVE_STRLCPY_DECL
+#cmakedefine HAVE_STRTONUM_DECL
 #cmakedefine HAVE_SETRESGID
 #cmakedefine HAVE_SETRESUID
 #cmakedefine HAVE_PATHS_H

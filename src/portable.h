@@ -252,40 +252,49 @@
  * Prototypes
  */
 
-#ifndef HAVE_ASPRINTF
+#if !defined(HAVE_ASPRINTF) || !defined(HAVE_ASPRINTF_DECL)
 int asprintf(char **str, const char *fmt, ...);
-#endif /* !HAVE_ASPRINTF */
+#endif /* !HAVE_ASPRINTF || !HAVE_ASPRINTF_DECL */
 
-#ifndef HAVE_CONFSTR
+#if !defined(HAVE_CONFSTR) || !defined(HAVE_CONFSTR_DECL)
 size_t confstr(int, char *, size_t);
-#endif /* !HAVE_CONFSTR */
+#endif /* !HAVE_CONFSTR || !HAVE_CONFSTR_DECL */
 
-/* Two different questions, so two macros. HAVE_REALLOCARRAY means the
- * symbol links; HAVE_REALLOCARRAY_DECL means <stdlib.h> declares it.
- * z/OS with zoslib is the case that separates them: the symbol is there
- * and the headers never declare it, so a single macro left either an
- * implicit declaration (build error) or a missing prototype.
+/* Two different questions, so two macros. HAVE_x means the symbol
+ * links; HAVE_x_DECL means a header declares it. z/OS with zoslib is
+ * the case that separates them: the shell links zoslib because ncurses
+ * needs it, zoslib supplies these symbols, and no system header
+ * declares them, so a single macro left either an implicit declaration
+ * (a build error) or a missing prototype.
  * docs/port.md P26. */
 #if !defined(HAVE_REALLOCARRAY) || !defined(HAVE_REALLOCARRAY_DECL)
 void *reallocarray(void *, size_t, size_t);
+#endif
+
+#if !defined(HAVE_SETRESUID) || !defined(HAVE_SETRESUID_DECL)
+int setresuid(uid_t, uid_t, uid_t);
+#endif
+
+#if !defined(HAVE_SETRESGID) || !defined(HAVE_SETRESGID_DECL)
+int setresgid(gid_t, gid_t, gid_t);
 #endif
 
 #ifndef HAVE_STRAVIS
 int stravis(char **, const char *, int);
 #endif /* !HAVE_STRAVIS */
 
-#ifndef HAVE_STRLCAT
+#if !defined(HAVE_STRLCAT) || !defined(HAVE_STRLCAT_DECL)
 size_t strlcat(char *, const char *, size_t);
-#endif /* !HAVE_STRLCAT */
+#endif /* !HAVE_STRLCAT || !HAVE_STRLCAT_DECL */
 
-#ifndef HAVE_STRLCPY
+#if !defined(HAVE_STRLCPY) || !defined(HAVE_STRLCPY_DECL)
 size_t strlcpy(char *, const char *, size_t);
-#endif /* !HAVE_STRLCPY */
+#endif /* !HAVE_STRLCPY || !HAVE_STRLCPY_DECL */
 
-#ifndef HAVE_STRTONUM
+#if !defined(HAVE_STRTONUM) || !defined(HAVE_STRTONUM_DECL)
 long long strtonum(const char *numstr, long long minval, long long maxval,
                    const char **errstrp);
-#endif /* !HAVE_STRTONUM */
+#endif /* !HAVE_STRTONUM || !HAVE_STRTONUM_DECL */
 
 #ifndef HAVE_STRSIGNAL
 /* Not available (or not linkable statically). trap.c already treats a
