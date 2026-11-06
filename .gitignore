@@ -1,13 +1,15 @@
-# Build products. oksh's configure writes a Makefile; objects, the
-# binaries and the .flags stamp are all generated.
-*.o
-Makefile
-.flags
-oksh
-zksh
-sh
-/ksh
+# CMake build directories (build/, build-release/, build-san/, ...).
+# Each holds compile_commands.json and generated headers.
+/build*/
 /compile_commands.json
+
+# The oksh configure shim's leftovers, and objects if anyone ever
+# hand-compiles in src/.
+/src/Makefile
+/src/pconfig.h
+*.o
+
+# Editors and tools
 .cache/
 .vscode/
 .idea/
