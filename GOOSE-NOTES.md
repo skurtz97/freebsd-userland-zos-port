@@ -31,7 +31,10 @@ docs/direction.md (constitution), docs/status.md (what works).
   ncurses 6.6 (ncursesw), GNU make, bash 5.3, gawk 5.3.
 - z/OS: Open XL C/C++ 2.1 (ibm-clang64, clang 18) on z16; zopen
   provides make/bash/gawk/ncurses(widec) but not libedit.
-- goose runs from ~/src/zrx; always cd or use absolute paths.
+- goose's working directory is ~/src (changed 2026-11-05; it used
+  to be ~/src/zrx). Project paths are relative to it: zksh/, oksh/,
+  zash/, zrx/. Still prefer absolute paths in commands that another
+  session might copy.
 - Reference books (grep, never guess):
   /home/skurtz/docs/mainframe/txt/zos-c-runtime-library.txt
   /home/skurtz/docs/mainframe/txt/zos-unix-command-reference-bpxa500_v3r2.txt
