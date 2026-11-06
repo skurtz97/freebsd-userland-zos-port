@@ -63,6 +63,21 @@ if(ZKSH_EDITOR)
   endif()
 endif()
 
+# Test invocation. Two host differences, both measured on z/OS:
+#   - the shell (and the tests/ runner script) must be a POSIX sh that
+#     actually exists there: /bin/sh, not a name looked up in PATH;
+#   - zksh writes IBM-1047, so the tests decode its output before
+#     matching ASCII expectations (tests/run-c.sh).
+find_program(ZKSH_TEST_SHELL NAMES sh HINTS /bin)
+if(NOT ZKSH_TEST_SHELL)
+  set(ZKSH_TEST_SHELL sh)
+endif()
+if(ZKSH_ZOS)
+  set(ZKSH_DECODE IBM-1047)
+else()
+  set(ZKSH_DECODE "")
+endif()
+
 # Every .c in src/ is part of the shell, except the z/OS-only files that
 # live in src/zos/ and are added conditionally below.
 file(GLOB ZKSH_SOURCES CONFIGURE_DEPENDS ${ZKSH_SRC_DIR}/*.c)
