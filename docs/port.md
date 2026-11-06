@@ -62,6 +62,7 @@ Found by reading the tree and the z/OS reference books. Each is
 | P13 | `misc.c`, `portable.h`, build | `setgroups()` needs `_OPEN_SYS` on z/OS, and `<grp.h>` was included only on Linux | **done** — `_OPEN_SYS` added to build and checks, `<grp.h>` included unconditionally |
 | P14 | `src/zos_spawn.c`, `CMakeLists.txt` | duplicate `zos_spawn.c` -- one at `src/`, one at `src/zos/`, both compiled | **done** -- `src/zos/` copy removed; `main.c`/`jobs.c` `#include "zos_spawn.h"` from `src/` |
 | P15 | `zos_spawn.c`, build | `setenv()` needs `_UNIX03_SOURCE` on z/OS | **done** -- macro added to build and probes |
+| P15d | `main.c`, `checks.cmake` | `__sysconf`/`__fopen_ascii` unresolved at link, from a header, not from our code | **done** -- `confstr(_CS_PATH)` is XPG4 `_XOPEN_SOURCE` interface; the probe passed but its support code pulls `__sysconf` in. `HAVE_CONFSTR` is forced off on z/OS and `main.c` keeps `_PATH_DEFPATH` |
 | P15c | `zos_spawn.c` | `setenv` undeclared without `_UNIX03_SOURCE`, and `_UNIX03_SOURCE` breaks the static link | **done** -- no `setenv` at all: `putenv()` with static strings, which needs no feature macro |
 | B2 | `zos_spawn.c` | `_BPX_JOBNAME` said `OKSH` | **done** -- `ZKSH` |
 | P15b | build, `trap.c`, `strsignal.c` | the link failed with IEW2456E for `__fopen_ascii`, `__sysconf`, `strsignal` | **done** — `_UNIX03_SOURCE` dropped (it switches headers to `__`-prefixed LE entry points a static link cannot resolve); `_POSIX_C_SOURCE=200809L` instead; `strsignal` probed with an `oksh_strsignal` fallback |

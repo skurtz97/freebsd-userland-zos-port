@@ -217,6 +217,12 @@ main(int argc, char *argv[])
 	init_histvec();
 
 	def_path = _PATH_DEFPATH;
+#ifdef HAVE_CONFSTR
+	/* confstr(_CS_PATH) is only an override: _PATH_DEFPATH above is
+	 * already a working default. It is optional for us because the
+	 * interface is XPG4 and needs _XOPEN_SOURCE, and on z/OS pulling
+	 * it in brings __sysconf with it -- an entry point the binder
+	 * cannot resolve in a static link (IEW2456E). */
 	{
 		size_t len = confstr(_CS_PATH, NULL, 0);
 		char *new;
@@ -226,6 +232,7 @@ main(int argc, char *argv[])
 			def_path = new;
 		}
 	}
+#endif /* HAVE_CONFSTR */
 
 	/* Set PATH to def_path (will set the path global variable).
 	 * (import of environment below will probably change this setting).

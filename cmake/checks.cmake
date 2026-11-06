@@ -106,8 +106,16 @@ endif()
 # Each HAVE_x is set to 0 before the check, so that a cached answer from
 # an older configure, or a check that errors out instead of answering
 # "no", cannot leave a feature switched on that is not there.
-foreach(fn asprintf confstr getauxval reallocarray setresgid setresuid
+set(ZKSH_FUNCS asprintf getauxval reallocarray setresgid setresuid
     strlcat strlcpy strtonum)
+# confstr is left out on z/OS. It compiles and links, but its _CS_PATH
+# support drags in __sysconf, which the static binder cannot resolve
+# (IEW2456E). main.c keeps _PATH_DEFPATH as the default and guards the
+# confstr override with HAVE_CONFSTR, so "absent" is a correct answer.
+if(NOT ZKSH_ZOS)
+  list(APPEND ZKSH_FUNCS confstr)
+endif()
+foreach(fn ${ZKSH_FUNCS})
   string(TOUPPER ${fn} FN_UC)
   set(HAVE_${FN_UC} 0)
   check_function_exists(${fn} HAVE_${FN_UC})
