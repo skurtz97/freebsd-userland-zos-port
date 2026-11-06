@@ -154,3 +154,5 @@ declaration.
   deleted on 2026-11-05 before any port edit was made. Nothing from
   it is reused. Pin, if ever needed: `freebsd/freebsd-src`
   `release/15.1.0`, `96841ea08dcfa84b954a32dc5ae1a26c28966cf4`.
+
+| P25 | `trap.c` | `strcasecmp()`/`strncasecmp()` were undeclared | **done** -- added `<strings.h>`, which is where POSIX declares them. oksh never noticed: glibc's `<string.h>` declares them under `_GNU_SOURCE`, and zopen's shared include tree happened to declare them too. Narrowing the ncurses include path (P9) removed the accident and the z/OS build said so: `call to undeclared library function 'strcasecmp' ... ISO C99 and later do not support implicit function declarations` |

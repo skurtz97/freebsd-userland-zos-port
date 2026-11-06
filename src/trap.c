@@ -6,6 +6,11 @@
 
 #include <ctype.h>
 #include <errno.h>
+/* zos: strcasecmp()/strncasecmp() are declared in <strings.h> by
+ * POSIX, not <string.h>. oksh escaped this because glibc's <string.h>
+ * declares them under _GNU_SOURCE and zopen's headers declared them by
+ * accident; the z/OS system headers do neither. docs/port.md P25. */
+#include <strings.h>
 #include <string.h>
 #include <unistd.h>
 
