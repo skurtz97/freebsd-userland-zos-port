@@ -64,23 +64,28 @@ if(ZKSH_EDITOR)
 endif()
 
 # Test invocation. Two host differences, both measured on z/OS:
-#   - the shell (and the tests/ runner script) must be a POSIX sh that
-#     actually exists there: /bin/sh, not a name looked up in PATH;
-#   - zksh writes IBM-1047, so the tests decode its output before
-#     matching ASCII expectations (tests/run-c.sh).
-find_program(ZKSH_TEST_SHELL NAMES sh HINTS /bin)
-if(NOT ZKSH_TEST_SHELL)
-  set(ZKSH_TEST_SHELL sh)
-endif()
+#   - zksh writes IBM-1047 there, so the tests decode its output before
+#     matching ASCII expectations (tests/run-c.sh, ZKSH_DECODE);
+#   - /bin/sh cannot read this repo's UTF-8-tagged scripts at all
+#     ("FSUM7332 syntax error: got (", with or without _BPXK_AUTOCVT),
+#     so the runner is bash, which reads them as they are. bash is
+#     development tooling here, not a runtime dependency of zksh.
 if(ZKSH_ZOS)
   set(ZKSH_DECODE IBM-1047)
-  # /bin/sh reads an ASCII-tagged script only with conversion enabled;
-  # tests/run-c.sh clears this again before running zksh, whose output
-  # must stay IBM-1047.
-  set(ZKSH_TEST_ENV "_BPXK_AUTOCVT=ON")
+  find_program(ZKSH_TEST_SHELL NAMES bash HINTS
+    /usr/local/zopen/usr/local/bin
+    "${ZKSH_ZOPEN_ROOT}/usr/local/bin")
+  if(NOT ZKSH_TEST_SHELL)
+    message(WARNING
+      "zksh: bash not found; ctest on z/OS needs it to run "
+      "tests/run-c.sh (see docs/build.md).")
+  endif()
 else()
   set(ZKSH_DECODE "")
-  set(ZKSH_TEST_ENV "")
+  find_program(ZKSH_TEST_SHELL NAMES sh HINTS /bin)
+endif()
+if(NOT ZKSH_TEST_SHELL)
+  set(ZKSH_TEST_SHELL sh)
 endif()
 
 # Every .c in src/ is part of the shell, except the z/OS-only files that

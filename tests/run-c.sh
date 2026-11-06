@@ -11,14 +11,10 @@
 #
 #   run-c.sh <path-to-shell> <args...>
 #
-# Deliberately /bin/sh-compatible: no $( ), no local, no $'...'.
-
-# CTest sets _BPXK_AUTOCVT=ON on z/OS so that /bin/sh can read this
-# ASCII file at all (without it: "FSUM7332 syntax error"). Clear it
-# before running the shell under test, or the shell's own I/O would be
-# converted as well and the decode below would convert twice. Measured
-# on z/OS: the shell writes IBM-1047 with this unset.
-unset _BPXK_AUTOCVT
+# Needs a shell that can read a UTF-8-tagged script: on z/OS that is
+# zopen's bash, because /bin/sh answers "FSUM7332 syntax error" to this
+# file with or without _BPXK_AUTOCVT (measured). Otherwise written for
+# /bin/sh: no $( ), no local, no $'...'.
 
 shell=$1
 shift
