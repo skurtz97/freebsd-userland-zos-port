@@ -80,27 +80,66 @@ oksh `configure` script was replaced by the CMake build
 | P21 | `tty.c`, `jobs.c` | `tcsetpgrp` under a line-mode OMVS session | must degrade without error |
 | P22 | `signame.c`, `siglist.c` | signal name table | verify z/OS signal names match the table |
 | P23 | `c_test.h`, `edit.h` | neither header is self-contained | **done** -- the clang-format run (62cbee2) sorted includes and thereby moved `c_test.h`/`edit.h` in front of `sh.h` in `c_test.c`, `exec.c`, `syn.c`, `edit.c`, `emacs.c`, `vi.c`; both headers only worked because the includer had already pulled in the definition. `c_test.h` now forward-declares `struct XPtrV`, `edit.h` includes `<stdbool.h>`. Measured: reverting them fails the build with `unknown type name 'XPtrV'` and `unknown type name 'bool'` |
-| P24 | `CMakeLists.txt`, `src/zos/link_driver.c` | the z/OS link failed with IEW2456E for `__fopen_ascii` and `__sysconf` | **done, pending z/OS confirmation** -- see below |
+| P24 | `cmake/toolchain-zos.cmake`, `CMakeLists.txt` | the z/OS link failed with IEW2456E for `__fopen_ascii` and `__sysconf` | **done** -- the missing libraries are zoslib's; see below |
 
 ### P24: what actually failed to link, and why
 
 The earlier entries blamed `_UNIX03_SOURCE` and `confstr()`. Both were
-wrong. Bisected on the z/OS host against the real object set:
+wrong, and so was the first fix attempted here.
+
+**Wrong fix, kept in the record.** The theory was that `ibm-clang64`
+adds the Language Environment C runtime linkage only when a C source
+file is on the link command, so an empty translation unit
+(`src/zos/link_driver.c`) would bring it back. It linked nothing: the
+same two symbols failed with the driver's object in the target. The
+file is deleted and the CMake block with it. An empty `.c` that is
+supposed to change link behaviour is a claim about the driver, not a
+measurement.
+
+**Measured cause.** Reproduced on the host with a four-line curses
+program, so zksh is not involved at all:
 
 ```
-var.c.obj alone                                -> clean link
-var.c.obj + libncursesw.a (either zopen copy)  -> __sysconf, __fopen_ascii
+$ ibm-clang64 t.c -I.../include/ncursesw -I.../include
+$ ibm-clang64 t.obj /usr/local/zopen/usr/local/lib/libncursesw.a -o t
+  IEW2456E SYMBOL __sysconf UNRESOLVED. MEMBER COULD NOT BE INCLUDED
+  FROM THE DESIGNATED CALL LIBRARY.
 ```
 
-Those two are Language Environment services that the zopen ncurses
-archives reference. They are resolved when `ibm-clang64` puts the LE
-C runtime linkage on the link command -- which it does when a **C
-source file** is among the inputs. CMake links objects only, so an
-archive that expects the CRT comes up short. Hence
-`src/zos/link_driver.c`: an empty translation unit whose only purpose
-is to be a source file on the link line. It is a link flag in the only
-form CMake passes through unchanged. Do not delete it for looking
-empty.
+`nm -u libncursesw.a` names the unresolved symbols:
+`__fopen_ascii`, `__sysconf`, `__strerror_ascii`. Those are **zoslib**
+functions -- the zopen tree's ASCII-runtime shims -- not Language
+Environment services, and not anything `_UNIX03_SOURCE` controls. The
+ncurses package's own `pkg-config --libs ncursesw` says so:
+
+```
+-L.../ncurses/lib -Wl,-bcompress=yes -m64 -L.../zoslib/zoslib/lib
+  .../celquopt.s.o -lncursesw -lzoslib .../celquopt.s.o -lzoslib-supp
+```
+
+Bisected to the minimum for a C caller:
+
+```
+libncursesw.a + -lzoslib                -> __cxa_guard_abort, std::to_string
+libncursesw.a + -lzoslib -lzoslib-supp  -> links
+```
+
+So `libzoslib.a` supplies the ASCII runtime and `libzoslib-supp.a` the
+C++ support that ncurses' C++ members reference; `celquopt.s.o` is for
+C++ exception qualifiers and is not needed here.
+
+The toolchain now locates zoslib next to the ncurses package, sets
+`ZKSH_CURSES_LINK_ITEMS`, and warns loudly rather than producing an
+archive that cannot bind. `-DZKSH_ZOSLIB_LIBDIR=<dir>` overrides.
+
+### Formatter hazard (found with P23)
+
+`clang-format` sorts includes. oksh's headers are not self-contained and
+many `.c` files relied on `sh.h` coming first, so a format run can
+break the build in ways that look like compiler problems. When a format
+commit is made, build afterwards, and treat any new
+"unknown type name" as a header that needs its own include or forward
+declaration.
 
 ### Language
 

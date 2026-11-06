@@ -96,6 +96,12 @@ if(ZKSH_EDITOR AND CURSES_FOUND)
     target_link_libraries(zksh PRIVATE ${CURSES_LIBRARIES})
   endif()
   message(STATUS "zksh: line editing with ${CURSES_LIBRARY}")
+  # z/OS: libncursesw.a needs zoslib to bind (the ASCII runtime shims
+  # and the C++ support its members reference). The toolchain locates
+  # it and hands the archives over here; empty elsewhere.
+  if(ZKSH_CURSES_LINK_ITEMS)
+    target_link_libraries(zksh PRIVATE ${ZKSH_CURSES_LINK_ITEMS})
+  endif()
 endif()
 
 if(ZKSH_STRICT)
@@ -114,14 +120,8 @@ if(ZKSH_ZOS)
   # zos_spawn.c lives at src/ root, not src/zos/, so that main.c and
   # jobs.c can #include "zos_spawn.h" without an extra -I.
   target_sources(zksh PRIVATE ${ZKSH_SRC_DIR}/zos_spawn.c)
-
-  # ibm-clang64 adds the Language Environment C runtime linkage only
-  # when a C source file is on the link command. CMake links objects
-  # only, so an archive that expects the CRT (zopen's libncursesw.a)
-  # fails the bind with __fopen_ascii and __sysconf unresolved.
-  # Putting one empty translation unit in the target restores it.
-  # docs/port.md P24.  Do not remove because it looks empty.
-  target_sources(zksh PRIVATE ${ZKSH_SRC_DIR}/zos/link_driver.c)
+  # The ncurses link needs zoslib; see ZKSH_CURSES_LINK_ITEMS in
+  # cmake/toolchain-zos.cmake and docs/port.md P24.
   # The z/OS headers gate interfaces on a stack of feature macros, and
   # each one hides different things:
   #   _ALL_SOURCE       the broad "make everything visible" switch

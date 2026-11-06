@@ -152,6 +152,49 @@ if(_zksh_want_curses AND (NOT CURSES_INCLUDE_PATH OR NOT CURSES_LIBRARY))
     if(ZKSH_CURSES_EXTRA_INCLUDE)
       message(STATUS "zksh: ncurses header parent at ${ZKSH_CURSES_EXTRA_INCLUDE}")
     endif()
+
+    # ---- zoslib ------------------------------------------------------
+    # libncursesw.a does not bind on its own. zopen's ncurses package
+    # links against zoslib, and these names are zoslib's:
+    #   __fopen_ascii, __sysconf   (the ASCII runtime shims)
+    #   __cxa_guard_abort, std::to_string  (what libncursesw.a's C++
+    #                               members pull in)
+    # Without both archives the bind ends in IEW2456E "MEMBER COULD NOT
+    # BE INCLUDED FROM THE DESIGNATED CALL LIBRARY" and exit 12.
+    #
+    # This is from the package's own pkg-config Libs line, then
+    # bisected on the host to the minimum for a C caller:
+    #   archive + -lzoslib                 -> __cxa_guard_abort (fails)
+    #   archive + -lzoslib -lzoslib-supp   -> links
+    # celquopt.s.o in that line is for C++ exceptions and is not
+    # needed here; -Wl,-bcompress=yes only shrinks the load module.
+    if(NOT ZKSH_ZOSLIB_LIBDIR)
+      foreach(_zl
+          /usr/local/zopen/usr/local/zopen/zoslib/zoslib/lib
+          "${ZKSH_ZOPEN_ROOT}/usr/local/zopen/zoslib/zoslib/lib"
+          "${ZKSH_ZOPEN_ROOT}/zoslib/zoslib/lib"
+          /usr/local/zopen/usr/local/zopen/zoslib/lib)
+        if(EXISTS "${_zl}/libzoslib.a")
+          set(ZKSH_ZOSLIB_LIBDIR "${_zl}")
+          break()
+        endif()
+      endforeach()
+    endif()
+
+    if(ZKSH_ZOSLIB_LIBDIR
+        AND EXISTS "${ZKSH_ZOSLIB_LIBDIR}/libzoslib.a"
+        AND EXISTS "${ZKSH_ZOSLIB_LIBDIR}/libzoslib-supp.a")
+      set(ZKSH_CURSES_LINK_ITEMS
+        "${ZKSH_ZOSLIB_LIBDIR}/libzoslib.a"
+        "${ZKSH_ZOSLIB_LIBDIR}/libzoslib-supp.a")
+      message(STATUS "zksh: z/OS zoslib at ${ZKSH_ZOSLIB_LIBDIR}")
+    else()
+      message(WARNING
+        "zksh: zoslib not found (looked under ZKSH_ZOSLIB_LIBDIR="
+        "'${ZKSH_ZOSLIB_LIBDIR}'). libncursesw.a will not bind: "
+        "IEW2456E __fopen_ascii/__sysconf. Pass "
+        "-DZKSH_ZOSLIB_LIBDIR=<dir containing libzoslib.a>.")
+    endif()
   else()
     message(STATUS
       "zksh: z/OS ncurses not found (include: '${CURSES_INCLUDE_PATH}' "
