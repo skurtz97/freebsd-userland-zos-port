@@ -108,7 +108,17 @@ if(NOT CURSES_INCLUDE_PATH OR NOT CURSES_LIBRARY)
     if(NOT CURSES_INCLUDE_PATH)
       foreach(_inc "${_root}/include/ncursesw" "${_root}/include/ncurses")
         if(EXISTS "${_inc}/curses.h")
-          set(CURSES_INCLUDE_PATH "${_inc}")
+          # term.h in this tree does #include <ncursesw/ncurses_dll.h>,
+          # so the parent of the ncursesw directory must be on the path
+          # too. FindCurses treats CURSES_INCLUDE_PATH as one directory,
+          # so the parent goes in its own variable.
+          get_filename_component(_parent "${_inc}" DIRECTORY)
+          if(_inc MATCHES "/ncursesw$" AND EXISTS "${_parent}/ncursesw/ncurses_dll.h")
+            set(CURSES_INCLUDE_PATH "${_inc}")
+            set(ZKSH_CURSES_EXTRA_INCLUDE "${_parent}")
+          else()
+            set(CURSES_INCLUDE_PATH "${_inc}")
+          endif()
           break()
         endif()
       endforeach()
@@ -126,6 +136,9 @@ if(NOT CURSES_INCLUDE_PATH OR NOT CURSES_LIBRARY)
   if(CURSES_INCLUDE_PATH AND CURSES_LIBRARY)
     message(STATUS "zksh: z/OS ncurses at ${CURSES_LIBRARY}")
     message(STATUS "zksh: ncurses headers at ${CURSES_INCLUDE_PATH}")
+    if(ZKSH_CURSES_EXTRA_INCLUDE)
+      message(STATUS "zksh: ncurses header parent at ${ZKSH_CURSES_EXTRA_INCLUDE}")
+    endif()
   else()
     message(STATUS
       "zksh: z/OS ncurses not found (include: '${CURSES_INCLUDE_PATH}' "

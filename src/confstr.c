@@ -32,7 +32,9 @@
 
 #ifndef HAVE_CONFSTR
 
+#ifdef HAVE_PATHS_H
 #include <paths.h>
+#endif
 #include <string.h>
 
 #include "portable.h"

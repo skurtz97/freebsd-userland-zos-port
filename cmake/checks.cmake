@@ -63,6 +63,12 @@ endif()
 # z/OS has no <sys/param.h> at all, and MAXLOGNAME comes from it on BSD
 # but from <limits.h> (or nowhere) elsewhere.
 
+check_include_file("paths.h" HAVE_PATHS_H)
+if(HAVE_PATHS_H)
+  set(HAVE_PATHS_H 1)
+else()
+  set(HAVE_PATHS_H 0)
+endif()
 check_include_file("sys/param.h" HAVE_SYS_PARAM_H)
 if(HAVE_SYS_PARAM_H)
   set(HAVE_SYS_PARAM_H 1)

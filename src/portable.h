@@ -18,6 +18,9 @@
 #include <stdlib.h>
 #endif /* __linux__ || __CYGWIN__ || __midipix__ */
 
+#ifdef HAVE_PATHS_H
+#include <paths.h>
+#endif /* HAVE_PATHS_H */
 #ifdef HAVE_SYS_PARAM_H
 #include <sys/param.h>
 #else
@@ -48,6 +51,12 @@
 /*
  * Defines
  */
+
+/* POSIX says _POSIX_VDISABLE is 0 if the implementation does not
+ * define it; z/OS's headers leave it out. */
+#ifndef _POSIX_VDISABLE
+#define _POSIX_VDISABLE	0
+#endif /* !_POSIX_VDISABLE */
 
 #ifndef CHILD_MAX
 #define CHILD_MAX	80
