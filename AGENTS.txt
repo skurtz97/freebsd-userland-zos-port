@@ -48,7 +48,12 @@ different set. A function "missing" on z/OS is usually a missing macro.
   _ALL_SOURCE        the broad switch
   _XPLATFORM_SOURCE  BSD/X-Open: flock(), timeradd()/timersub()
   _OPEN_SYS          z/OS UNIX: setgroups()
-  _UNIX03_SOURCE     SUSv3: setenv() in <stdlib.h>
+  _POSIX_C_SOURCE=200809L  POSIX.1-2008: strsignal()
+
+  NOT _UNIX03_SOURCE. It switches the headers to the __-prefixed LE
+  entry points (__sysconf, __fopen_ascii), and the binder cannot
+  resolve those in a statically linked program: IEW2456E, exit 12.
+  _ALL_SOURCE already gives setenv() under its non-POSIX name.
 
 The build passes all four (CMakeLists.txt, ZKSH_ZOS) and the probes
 pass the same three (cmake/checks.cmake). If you add a probe, add the

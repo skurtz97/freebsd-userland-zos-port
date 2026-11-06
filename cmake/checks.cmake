@@ -32,7 +32,8 @@ if(ZKSH_ZOS)
   # Must match the target's definitions, or a probe reports a function
   # missing while the build can see it.
   list(APPEND CMAKE_REQUIRED_DEFINITIONS
-    -D_ALL_SOURCE -D_XPLATFORM_SOURCE -D_OPEN_SYS -D_UNIX03_SOURCE)
+    -D_ALL_SOURCE -D_XPLATFORM_SOURCE -D_OPEN_SYS
+    -D_POSIX_C_SOURCE=200809L)
 endif()
 # Match CMAKE_C_STANDARD 99 / CMAKE_C_EXTENSIONS ON in CMakeLists.txt.
 list(APPEND CMAKE_REQUIRED_FLAGS -std=gnu99)
@@ -123,6 +124,16 @@ check_c_source_compiles("
   int main(void) { return flock(0, LOCK_EX | LOCK_UN); }" ZKSH_FLOCK_OK)
 if(ZKSH_FLOCK_OK)
   set(HAVE_FLOCK 1)
+endif()
+
+# strsignal(): POSIX.1-2008. Present on z/OS 3.2, but behind
+# _POSIX_C_SOURCE, and a static link may still not resolve it.
+set(HAVE_STRSIGNAL 0)
+check_c_source_compiles("
+  #include <string.h>
+  int main(void) { return strsignal(2) == 0; }" ZKSH_STRSIGNAL_OK)
+if(ZKSH_STRSIGNAL_OK)
+  set(HAVE_STRSIGNAL 1)
 endif()
 
 # WCOREDUMP(): a BSD macro over the wait status. Absent from POSIX and

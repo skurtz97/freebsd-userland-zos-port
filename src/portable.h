@@ -272,6 +272,13 @@ long long strtonum(const char *numstr, long long minval, long long maxval,
 		   const char **errstrp);
 #endif /* !HAVE_STRTONUM */
 
+#ifndef HAVE_STRSIGNAL
+/* Not available (or not linkable statically). trap.c already treats a
+ * NULL return as "Unknown signal", so this degrades honestly. */
+char	*oksh_strsignal(int);
+#define strsignal(sig)	oksh_strsignal(sig)
+#endif /* !HAVE_STRSIGNAL */
+
 #ifndef HAVE_STRUNVIS
 int	  strunvis(char *, const char *);
 #endif /* !HAVE_STRUNVIS */

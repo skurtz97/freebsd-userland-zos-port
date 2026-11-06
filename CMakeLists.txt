@@ -120,12 +120,18 @@ if(ZKSH_ZOS)
   #   _XPLATFORM_SOURCE BSD/X-Open: flock() in <sys/file.h>, the
   #                     timeradd() family in <sys/time.h>
   #   _OPEN_SYS         z/OS UNIX interfaces: setgroups() in <grp.h>
-  #   _UNIX03_SOURCE    Single UNIX Specification v3: setenv() in
-  #                     <stdlib.h>
+  #   _POSIX_C_SOURCE   POSIX.1-2008: strsignal() in <string.h>
+  #
+  # Deliberately NOT _UNIX03_SOURCE: it makes the headers emit the
+  # __-prefixed LE entry points (__sysconf, __fopen_ascii), which a
+  # statically linked program cannot resolve -- the binder reports
+  # IEW2456E for each. _ALL_SOURCE already exposes setenv() under its
+  # documented non-POSIX name, so SUSv3 is not needed for it.
   # docs/port.md records which interface needed which; AGENTS.txt 2a
   # keeps the list.
   target_compile_definitions(zksh PRIVATE
-    _ALL_SOURCE _XPLATFORM_SOURCE _OPEN_SYS _UNIX03_SOURCE)
+    _ALL_SOURCE _XPLATFORM_SOURCE _OPEN_SYS
+    _POSIX_C_SOURCE=200809L)
 endif()
 
 # ---- Install ---------------------------------------------------------
