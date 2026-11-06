@@ -30,13 +30,35 @@ option(ZKSH_ZOS "Target z/OS UNIX (normally set by cmake/toolchain-zos.cmake)" O
 
 set(ZKSH_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
-# Feature checks; they generate pconfig.h through cmake/pconfig.h.in.
-include(cmake/checks.cmake)
+# ---- Curses (line editing) -------------------------------------------
+# oksh probes -lcurses, -lncurses and -lncursesw. On z/OS the only
+# terminal library is zopen's wide-character ncurses.
+#
+# This runs BEFORE pconfig.h is generated, because HAVE_CURSES in
+# pconfig.h is what gates #include <curses.h> in emacs.c, vi.c and
+# var.c. It cannot touch the target here -- the target does not exist
+# yet -- so the results are applied further down.
+
+if(ZKSH_EDITOR)
+  find_package(Curses)
+  if(NOT CURSES_FOUND)
+    # A shell without line editing still builds; failing the whole
+    # build because a terminal library was not found is the wrong trade.
+    message(WARNING
+      "zksh: no curses found, building WITHOUT line editing.\n"
+      "       Set -DCURSES_INCLUDE_PATH=... -DCURSES_LIBRARY=... "
+      "or --disable-curses to silence this.")
+    set(ZKSH_EDITOR OFF)
+  endif()
+endif()
 
 # Every .c in src/ is part of the shell, except the z/OS-only files that
 # live in src/zos/ and are added conditionally below.
 file(GLOB ZKSH_SOURCES CONFIGURE_DEPENDS ${ZKSH_SRC_DIR}/*.c)
 list(SORT ZKSH_SOURCES)
+
+# Feature checks; they generate pconfig.h through cmake/pconfig.h.in.
+include(cmake/checks.cmake)
 
 add_executable(zksh ${ZKSH_SOURCES})
 
@@ -52,20 +74,17 @@ target_compile_definitions(zksh PRIVATE
   # declaration errors once -w was dropped).
   $<$<PLATFORM_ID:Linux>: _GNU_SOURCE>)
 
+# Apply the curses detection done above, now that the target exists.
+if(ZKSH_EDITOR AND CURSES_FOUND)
+  target_include_directories(zksh PRIVATE ${CURSES_INCLUDE_DIRS})
+  target_link_libraries(zksh PRIVATE ${CURSES_LIBRARIES})
+  message(STATUS "zksh: line editing with ${CURSES_LIBRARIES}")
+endif()
+
 if(ZKSH_STRICT)
   target_compile_options(zksh PRIVATE -Wall -Wextra -Werror)
 else()
   target_compile_options(zksh PRIVATE -Wall -Wextra)
-endif()
-
-# ---- Curses (line editing) -------------------------------------------
-# oksh probes -lcurses, -lncurses and -lncursesw. On z/OS the only
-# terminal library is zopen's wide-character ncurses.
-
-if(ZKSH_EDITOR)
-  find_package(Curses REQUIRED)
-  target_include_directories(zksh PRIVATE ${CURSES_INCLUDE_DIRS})
-  target_link_libraries(zksh PRIVATE ${CURSES_LIBRARIES})
 endif()
 
 # ---- z/OS layer ------------------------------------------------------

@@ -1,71 +1,93 @@
 # z/OS toolchain for CMake.
 #
-#   cmake -S . -B build-zos \
-#     -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-zos.cmake \
-#     -DZKSH_ZOS=ON -DCMAKE_BUILD_TYPE=Release
+#   ./configure --zos --release
+#   # or
+#   cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain-zos.cmake \
+#         -DZKSH_ZOS=ON -DCMAKE_BUILD_TYPE=Release
 #
-# or, through the shim:  ./configure --zos --release
-#
-# Lines marked VERIFY were written from the z/OS reference
-# documentation and from the zrx project's build, not from a
-# successful build of zksh on z/OS. The first real build should
-# confirm or correct them; record the answer here.
-#
-# VERIFIED (2026-11-05): removed CMAKE_C_COMPILER_TARGET. A native
-# build must not set a compiler target triple -- ibm-clang64 already
-# targets z/OS, and a triple overrides that. The same triple was the
-# reason the zrx scripts needed it only for cross-generating assembly
-# with a Linux clang, which is a different job.
+# VERIFIED 2026-11-05 on a real z/OS system:
+#   - CMake 3.31 has no Platform/zOS module ("System is unknown to
+#     cmake, create Platform/z/OS"). Naming the system z/OS gains
+#     nothing and loses the platform modules, which is why sig_t,
+#     st_mtim and timerclear were all reported missing on a system
+#     that has them. z/OS is a UNIX system: name it UNIX. The
+#     compiler's own __MVS__ macro identifies z/OS in the source.
+#   - The compiler is /usr/lpp/IBM/cnw/v2r1/openxl/bin/ibm-clang64.
+#     No -m64/-march is passed by default; Open XL defaults to 64-bit
+#     XPLINK and the machine's own level. Set ZKSH_ZOS_ARCH to pin it.
+#   - zopen's tree must be located, not guessed: ZKSH_ZOPEN_ROOT.
 
-set(CMAKE_SYSTEM_NAME z/OS)
+set(CMAKE_SYSTEM_NAME UNIX)
 set(CMAKE_SYSTEM_PROCESSOR s390x)
 
-# IBM Open XL C/C++ 2.1. xlc is not supported: Open XL is clang based,
-# so the options are clang options (see ~/src/zrx/Makefile).
-if(NOT DEFINED CMAKE_C_COMPILER)
-  find_program(ZKSH_ZOS_CC ibm-clang64)
+# IBM Open XL C/C++ 2.1 (ibm-clang64). xlc is not supported.
+if(NOT CMAKE_C_COMPILER)
+  find_program(ZKSH_ZOS_CC NAMES ibm-clang64
+    HINTS /usr/lpp/IBM/cnw/v2r1/openxl/bin)
   if(NOT ZKSH_ZOS_CC)
     message(FATAL_ERROR
-      "ibm-clang64 not found in PATH (IBM Open XL C/C++ 2.1); "
-      "pass -DZKSH_ZOS_CC=/path/to/ibm-clang64 or --cc= to configure")
+      "ibm-clang64 not found. Pass --cc=/path/to/ibm-clang64 (or "
+      "-DCMAKE_C_COMPILER=...) or set ZKSH_ZOS_CC.")
   endif()
   set(CMAKE_C_COMPILER ${ZKSH_ZOS_CC})
 endif()
 
-# 64-bit XPLINK. Amode 31 is only needed to call TSO/E services, and
-# that is done at call sites, not by building the shell 31-bit.
-set(ZKSH_ZOS_ARCH "z16" CACHE STRING "z/OS -march level (z16 is the tested machine)")
-set(CMAKE_C_FLAGS_INIT "-m64 -march=${ZKSH_ZOS_ARCH}")
+# Defaults come from the compiler. -march is opt-in: this machine is a
+# z16, but a build made for a higher level will not run on a lower one.
+if(ZKSH_ZOS_ARCH)
+  set(CMAKE_C_FLAGS_INIT "-march=${ZKSH_ZOS_ARCH}")
+endif()
 
-# VERIFY: whether _ALL_SOURCE is needed at all is decided by the first
-# build. checks.cmake applies it to the feature checks; CMakeLists.txt
-# applies it to the build.
 set(CMAKE_C_FLAGS_DEBUG_INIT "-g")
 set(CMAKE_C_FLAGS_RELEASE_INIT "-O2")
 
-# The zopen tree supplies cmake, ninja, make, ncurses and the shell
-# tools. VERIFY: set ZOPEN_ROOT, or pass -DZKSH_ZOPEN_ROOT=..., or let
-# the default below find it.
-if(NOT DEFINED ZKSH_ZOPEN_ROOT)
-  if(DEFINED ENV{ZOPEN_ROOT})
-    set(ZKSH_ZOPEN_ROOT $ENV{ZOPEN_ROOT})
-  elseif(EXISTS /usr/local/zopen/Common)
-    set(ZKSH_ZOPEN_ROOT /usr/local/zopen)
-  endif()
+# ---- zopen -----------------------------------------------------------
+# zopen's layout has varied: <root>/Common, <root>/usr/local/zopen/<pkg>,
+# or a per-package directory directly. Find whichever exists rather
+# than assume one.
+
+if(NOT ZKSH_ZOPEN_ROOT)
+  foreach(candidate
+      "$ENV{ZOPEN_ROOT}/Common"
+      "$ENV{ZOPEN_ROOT}"
+      /usr/local/zopen/Common
+      /usr/local/zopen/usr/local/zopen
+      /usr/local/zopen
+      /usr/local/zopen/prod
+      /usr/local/zopen/dev)
+    if(EXISTS "${candidate}/bin" OR EXISTS "${candidate}/include")
+      set(ZKSH_ZOPEN_ROOT "${candidate}")
+      break()
+    endif()
+  endforeach()
 endif()
 
 if(ZKSH_ZOPEN_ROOT)
-  # zopen installs into per-package directories; the "Common" tree is
-  # the merged view, which has bin/ lib/ include/.
-  list(APPEND CMAKE_PREFIX_PATH ${ZKSH_ZOPEN_ROOT}/Common)
-  list(APPEND CMAKE_FIND_ROOT_PATH ${ZKSH_ZOPEN_ROOT}/Common)
-  # ncurses is built --enable-widec: toolchain file must ask for wide.
-  set(CURSES_NEED_WIDE TRUE)
-  set(CURSES_NEED_NCURSES TRUE)
+  list(APPEND CMAKE_PREFIX_PATH "${ZKSH_ZOPEN_ROOT}")
+  list(APPEND CMAKE_FIND_ROOT_PATH "${ZKSH_ZOPEN_ROOT}")
 endif()
 
-# Native build: programs, libraries and headers all come from this
-# system. (For a cross build this would be BOTH or ONLY.)
+# ---- ncurses ---------------------------------------------------------
+# zopen builds ncurses --enable-widec: libncursesw, headers under
+# include/ncursesw or include/ncurses, terminfo under ASCII_TERMINFO.
+# VERIFY the exact subpaths on the system; -DZKSH_CURSES_PREFIX overrides.
+
+if(NOT ZKSH_CURSES_PREFIX AND ZKSH_ZOPEN_ROOT)
+  foreach(candidate
+      "${ZKSH_ZOPEN_ROOT}/ncurses"
+      "${ZKSH_ZOPEN_ROOT}"
+      "${ZKSH_ZOPEN_ROOT}/usr/local/zopen/ncurses")
+    if(EXISTS "${candidate}/lib" OR EXISTS "${candidate}/lib64")
+      list(APPEND CMAKE_PREFIX_PATH "${candidate}")
+    endif()
+  endforeach()
+endif()
+
+set(CURSES_NEED_NCURSES TRUE)
+set(CURSES_NEED_WIDE TRUE)
+
+# ---- Native build -----------------------------------------------------
+# Programs, libraries and headers all come from this system.
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY BOTH)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE BOTH)
