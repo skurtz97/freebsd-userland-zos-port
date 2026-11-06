@@ -27,15 +27,41 @@ item below run through `./zksh -c`:
 - emacs/vi line editing: compiled in, not driven through a pty here.
 - `select`: parses, not driven interactively.
 
-## Inherited, not compiled on z/OS
+## Verified on z/OS (2026-11-06)
 
-- `zos_spawn.c` / `zos_spawn.h` and `doc/ZOS-NOTES.md`: commit
-  `3d04c43` (branch `zos-spawn` in `~/src/oksh`). Gated on `__MVS__`
-  and compiled to an empty object on Linux (verified: 0 bytes).
-- Hooks in `main.c` (`zos_spawn_init`) and `jobs.c` (`exchild`).
+Host: z/OS 3.2 (CBT 29.00), Open XL C/C++ 2.1 (`ibm-clang64`, clang 18),
+CMake 3.31 + Ninja from zopen, ncurses 6.6 wide static, zoslib.
 
-Every statement about z/OS behaviour in these documents is from
-documentation until a real build says otherwise.
+| Part | State |
+| ---- | ----- |
+| Build | `bash ./configure --zos --release && cmake --build build-zos -j4` -- 0 errors, no binder messages, no duplicate-definition warning |
+| Binary | 3,493,888 bytes, XPLINK 64-bit, static ncurses + zoslib |
+| `-c` scripts | `print`, `echo $(( ))`, `set -A`, `typeset` scoping, `[[ ]]`, `for`, command substitution, `trap` + `kill -USR1` all verified |
+| External commands | `zksh -c 'uname -a'` runs and its output reaches the parent |
+| ctest | 4/4 -- `smoke_print`, `smoke_arith`, `smoke_array`, `smoke_typeset` |
+
+Two facts that are not optional reading before writing a test here:
+
+- **zksh's own output is IBM-1047.** `zksh -c 'print hi' > f` leaves
+  bytes `88 89 15` in `f`, which `iconv -f IBM-1047` reads as `hi`.
+  A z/OS program that writes EBCDIC is correct; do not "fix" it to
+  ASCII for a test's convenience. `tests/run-c.sh` decodes instead.
+- **External commands write ASCII**, because zopen's programs convert
+  to ISO8859-1 when the destination is untagged. So
+  `zksh -c 'print hi | cat' > f` puts ASCII `68 69 0A` in `f`, and a
+  redirect that mixes builtin and external output mixes encodings.
+  This is the `_TAG_REDIR_*` gap below, now measured rather than
+  expected.
+
+## Not verified on z/OS
+
+- The `spawnp()` path in `zos_spawn.c` is compiled and linked; that it
+  is the path actually taken, and its cost model, are unmeasured.
+  (`doc/ZOS-NOTES.md` P1-P5 remain claims.)
+- Job control (`set -m`, `&`, `wait`, notifications), co-processes.
+- Line editing: linked against ncurses, never driven through a pty.
+- `tso`, `alloc`, `free`, `zosclass` (not written yet), `_TAG_REDIR_*`,
+  MVS data set redirection.
 
 ## Gaps against the direction
 
@@ -50,9 +76,10 @@ documentation until a real build says otherwise.
 
 ## Next milestone
 
-Make `make` on z/OS produce a shell that runs `./zksh -c 'print hi'`,
-and log every fix in [port.md](port.md). The second milestone is
-`${v/pat/rep}` with a test that fails today.
+**Reached 2026-11-06**: the z/OS build produces a shell that runs
+`./build-zos/zksh -c 'print hi'`, and every fix is in
+[port.md](port.md). The next milestone is `${v/pat/rep}` with a test
+that fails today.
 
 ## Open items
 

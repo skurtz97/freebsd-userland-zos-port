@@ -27,13 +27,15 @@ Companion repos, do not confuse them:
   ctest --test-dir build --output-on-failure               # 4 smoke tests
 
   # z/OS (ibm-clang64 found automatically; cmake+ninja from zopen)
-  ./configure --zos --release && cmake --build build -j8
+  bash ./configure --zos --release && cmake --build build -j8
   ./build/zksh -c 'print hello'
+  ctest --test-dir build --output-on-failure   # 4/4 on z/OS too
 
-The z/OS build HAS now been attempted and compiles all but the last few
-files; docs/port.md records every fix. Anything not yet built on z/OS or
-not yet run on z/OS is still a claim from documentation: mark it VERIFY
-in the source comment, as zos_spawn.c does.
+The z/OS build compiles, links, runs and passes ctest as of
+2026-11-06; docs/port.md records every fix (P6-P27). Anything not yet
+RUN on z/OS is still a claim from documentation: mark it VERIFY in the
+source comment, as zos_spawn.c does. Runtime job control, co-processes,
+line editing and the spawnp path are all in that category.
 
 BEWARE the checks cache. cmake/checks.cmake probes are sticky; if a
 probe is changed, `rm -rf build` before reconfiguring, or a stale answer
@@ -113,6 +115,36 @@ Docs change in the same commit as the code: docs/status.md (what
 works), docs/port.md (base edits), docs/zos-changes.md (new
 behaviour), docs/language.md (anything a parser now accepts).
 
+
+2b. THINGS THAT COST A SESSION ON 2026-11-06
+
+  - CMAKE_TOOLCHAIN_FILE is read at project() time, BEFORE
+    CMakeLists.txt declares its options. A toolchain test of
+    if(ZKSH_EDITOR) is therefore always false. Ask
+    if(DEFINED ...) and default to the option's declared value.
+  - check_function_exists() runs only if its result variable is
+    UNDEFINED (`if(NOT DEFINED ...)`). Pre-setting HAVE_x to 0 to guard
+    against a stale cache skips the probe, and a skip is
+    indistinguishable from "not found". unset() it instead.
+  - "the symbol links" and "a header declares it" are different
+    questions. zoslib supplies symbols the z/OS headers never declare,
+    so every HAVE_x that links also needs HAVE_x_DECL.
+  - /bin/sh cannot run this repo's scripts ("FSUM7332 syntax error:
+    got ("); it has no $( ). Use bash or oksh. Tagging the file UTF-8
+    does not help, and _BPXK_AUTOCVT does not change it.
+  - libncursesw.a does not bind alone: it needs zoslib
+    (-lzoslib -lzoslib-supp). The ncurses pkg-config Libs line says so;
+    the toolchain finds it.
+  - Adding the PARENT of include/ncursesw to the include path pulls in
+    zopen's entire shared header tree, which shadows <sys/time.h>,
+    <sys/param.h> and friends. Expose ncurses through the one-entry
+    shim directory instead.
+  - zksh writes IBM-1047; zopen's utilities write ASCII when the
+    destination is untagged. A redirect that mixes builtin and external
+    output mixes encodings. Do not "fix" the shell's encoding.
+  - The CMake cache is stickier than it looks: a changed probe, a
+    changed find_program, or a changed toolchain needs a fresh build
+    dir, not just a rebuild. Two sessions were spent on stale caches.
 
 6. RECURRING MISTAKES
 

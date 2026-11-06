@@ -10,9 +10,10 @@ The name says what it is. It is not AT&T's `ksh88` (the UCS/DFKSH
 shell behind `/bin/sh` on z/OS), it is not bash, and it is not a
 POSIX-only shell. See [docs/direction.md](docs/direction.md).
 
-> **Status:** base imported and building on Linux, ksh88 surface
-> verified, z/OS layer inherited from prior work but **not yet
-> compiled on z/OS**. See [docs/status.md](docs/status.md).
+> **Status:** builds and runs on both Linux and z/OS, ksh88 surface
+> verified, `ctest` green on both (2026-11-06). The z/OS dialect layer
+> (`tso`/`alloc`/`free`, `_TAG_REDIR_*`, MVS data sets) is still to
+> come. See [docs/status.md](docs/status.md).
 
 ## Why
 

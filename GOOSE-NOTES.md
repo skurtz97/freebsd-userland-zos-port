@@ -68,10 +68,28 @@ docs/direction.md (constitution), docs/status.md (what works).
 - Whether zksh stays private or goes public
 
 ## Next actions
-1. Set a git remote and push (the last tree died without one).
-2. First z/OS build; log fixes in docs/port.md.
-3. ${v/pat/rep} + a test that fails today.
-4. Port zash's tso/chtag/redirection layer into zos_builtins.c.
+1. ~~Set a git remote and push~~ done 2026-11-05.
+2. ~~First z/OS build~~ **done 2026-11-06**: builds, links, runs,
+   `ctest` 4/4 on the z/OS host. Fixes P23-P27 in docs/port.md.
+3. Verify the runtime claims that are still documentation: job
+   control, co-processes, line editing through a pty, and whether
+   `zos_spawn_child()` is really the path taken (P1-P5).
+4. `${v/pat/rep}` + a test that fails today.
+5. Port zash's tso/chtag/redirection layer into zos_builtins.c --
+   now with a measured reason: a redirect that mixes builtin output
+   (IBM-1047) and external output (ASCII) mixes encodings today.
+
+## z/OS host, as measured 2026-11-06
+- ssh alias `cbt` (port 2022, user SKURTZ), OS/390 CBT 29.00,
+  `~/src/zksh` is a clone of the GitHub repo; build there with
+  `bash ./configure --zos --release --build-dir=build-zos`.
+- PATH from a non-interactive ssh session is /bin only: put
+  /usr/local/zopen/usr/local/bin on it, or call bash by full path.
+- ibm-clang64 is NOT on PATH; CMake finds it under
+  /usr/lpp/IBM/cnw/v2r1/openxl/bin.
+- oksh is at ~/bin/oksh and runs the configure script that /bin/sh
+  cannot.
+- `git` is zopen's; `git pull` on the host is how code gets there.
 
 ## How to update this file
 Short facts and pointers, not a log. Dated entries only for decisions

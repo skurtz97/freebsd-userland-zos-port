@@ -5,8 +5,8 @@ CMake and Ninja are the build on both hosts. They run on this z/OS now
 Ninja did not run with Open XL 2.1's C++ runtime; that no longer
 holds).
 
-**Status:** Phase 0. The Linux build is verified; the z/OS toolchain
-file is written but has not been used on z/OS.
+**Status:** Phase 0. Built and passing `ctest` on both Linux and z/OS
+(2026-11-06).
 
 ## Quick start
 
@@ -74,9 +74,21 @@ visible, not yet fixed; `ZKSH_STRICT` will not pass until they are.
 ## z/OS
 
 ```sh
-./configure --zos --release
-cmake --build build -j4
+bash ./configure --zos --release --build-dir=build-zos
+cmake --build build-zos -j4
+./build-zos/zksh -c 'print hello'
+ctest --test-dir build-zos --output-on-failure
 ```
+
+**Run `configure` with bash, not `/bin/sh`.** The system `sh` rejects
+the script (`FSUM7332 syntax error: got (`) -- it does not implement
+`$( )`. zopen's bash and oksh both run it.
+
+`ctest` also needs bash: `tests/run-c.sh` is a UTF-8-tagged script and
+`/bin/sh` refuses those with or without `_BPXK_AUTOCVT` (measured). The
+tests decode the shell's IBM-1047 output through `iconv` before
+matching their ASCII expectations, so a failing test means a real
+failure, not an encoding mismatch.
 
 `cmake/toolchain-zos.cmake` selects `ibm-clang64` (Open XL 2.1,
 clang based), names the system `ZKSH-ZOS` so a local
