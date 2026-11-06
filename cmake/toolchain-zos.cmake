@@ -87,7 +87,7 @@ endif()
 # Override with -DZKSH_CURSES_PREFIX=<pkgdir> or set both
 # -DCURSES_INCLUDE_PATH=... and -DCURSES_LIBRARY=... directly.
 
-if(NOT CURSES_INCLUDE_PATH OR NOT CURSES_LIBRARY)
+if(ZKSH_EDITOR AND (NOT CURSES_INCLUDE_PATH OR NOT CURSES_LIBRARY))
   set(_zksh_curses_roots "")
   if(ZKSH_CURSES_PREFIX)
     list(APPEND _zksh_curses_roots "${ZKSH_CURSES_PREFIX}")
