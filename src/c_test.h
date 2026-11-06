@@ -57,6 +57,11 @@ enum Test_meta {
   TM_BINOP,  /* binary operator */
   TM_END     /* end of input */
 };
+/* Forward declaration only: expand.h has no include guard and cannot
+ * be included from here. c_test.h uses XPtrV in a pointer, which is
+ * all a forward declaration needs. */
+struct XPtrV;
+
 typedef enum Test_meta Test_meta;
 
 #define TEF_ERROR BIT(0)    /* set if we've hit an error */
@@ -67,7 +72,7 @@ struct test_env {
   int flags; /* TEF_* */
   union {
     char **wp; /* used by ptest_* */
-    XPtrV *av; /* used by dbtestp_* */
+    struct XPtrV *av; /* used by dbtestp_* */
   } pos;
   char **wp_end; /* used by ptest_* */
   int (*isa)(Test_env *, Test_meta);

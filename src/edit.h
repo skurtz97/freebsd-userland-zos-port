@@ -1,5 +1,9 @@
 /*	$OpenBSD: edit.h,v 1.14 2026/05/22 18:11:08 kirill Exp $	*/
 
+/* Uses bool(); includes it rather than relying on the includer to have
+ * pulled in <stdbool.h> via sh.h first. */
+#include <stdbool.h>
+
 /* NAME:
  *      edit.h - globals for edit modes
  *

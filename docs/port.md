@@ -31,12 +31,18 @@ Found by reading the tree and the z/OS reference books. Each is
 
 ### Build
 
+**B1-B4 below are superseded**, kept so the reasoning is not lost: the
+oksh `configure` script was replaced by the CMake build
+(`docs/build.md`), and the z/OS branch named in B1 lives in
+`cmake/toolchain-zos.cmake` rather than in `configure`. B2 landed
+(P13/P24 era). Nothing in this table is outstanding.
+
 | # | Item | Decision |
 | - | ---- | -------- |
-| B1 | `configure`: detect `__MVS__`, set `-D_ALL_SOURCE`, add z/OS objects | The oksh configure is a `sh` script; add a case rather than a second build system |
-| B2 | `_BPX_JOBNAME` value is `OKSH` | rename to `ZKSH` |
-| B3 | `PROG`/`KSHELL` name in `configure` | `zksh` |
-| B4 | Link `-lcurses` vs z/OS terminfo/ncurses | verify which library z/OS supplies for the editing code |
+| B1 | ~~`configure`: detect `__MVS__`, set `-D_ALL_SOURCE`, add z/OS objects~~ | superseded: CMake, `cmake/toolchain-zos.cmake`. The macros are in `CMakeLists.txt` (ZKSH_ZOS) and `cmake/checks.cmake`, in both on purpose |
+| B2 | `_BPX_JOBNAME` value is `OKSH` | **done** -- `ZKSH` |
+| B3 | `PROG`/`KSHELL` name in `configure` | **done** -- the target is `zksh` |
+| B4 | Link `-lcurses` vs z/OS terminfo/ncurses | **done** -- zopen's static `libncursesw.a` by path, found by the toolchain (P9, P24) |
 
 ### Character set
 
@@ -61,11 +67,11 @@ Found by reading the tree and the z/OS reference books. Each is
 | P12 | `portable.h`, `CMakeLists.txt` | `timeradd`/`timersub` exist under `_XPLATFORM_SOURCE`, `timerclear` does not | **done** — each timer macro probed separately, `_XPLATFORM_SOURCE` added to build and checks |
 | P13 | `misc.c`, `portable.h`, build | `setgroups()` needs `_OPEN_SYS` on z/OS, and `<grp.h>` was included only on Linux | **done** — `_OPEN_SYS` added to build and checks, `<grp.h>` included unconditionally |
 | P14 | `src/zos_spawn.c`, `CMakeLists.txt` | duplicate `zos_spawn.c` -- one at `src/`, one at `src/zos/`, both compiled | **done** -- `src/zos/` copy removed; `main.c`/`jobs.c` `#include "zos_spawn.h"` from `src/` |
-| P15 | `zos_spawn.c`, build | `setenv()` needs `_UNIX03_SOURCE` on z/OS | **done** -- macro added to build and probes |
-| P15d | `main.c`, `checks.cmake` | `__sysconf`/`__fopen_ascii` unresolved at link, from a header, not from our code | **done** -- `confstr(_CS_PATH)` is XPG4 `_XOPEN_SOURCE` interface; the probe passed but its support code pulls `__sysconf` in. `HAVE_CONFSTR` is forced off on z/OS and `main.c` keeps `_PATH_DEFPATH` |
-| P15c | `zos_spawn.c` | `setenv` undeclared without `_UNIX03_SOURCE`, and `_UNIX03_SOURCE` breaks the static link | **done** -- no `setenv` at all: `putenv()` with static strings, which needs no feature macro |
+| P15 | `zos_spawn.c`, build | `setenv()` needs `_UNIX03_SOURCE` on z/OS | **done** -- macro added to build and probes. **Retracted:** `_UNIX03_SOURCE` must not be set at all; see P24 |
+| P15d | `main.c`, `checks.cmake` | `__sysconf`/`__fopen_ascii` unresolved at link, from a header, not from our code | **done** -- `confstr` probe forced off on z/OS. The forcing is right, the **reason was wrong**: `__sysconf` does not come from `confstr.c`, it comes from `libncursesw.a` (P24) |
+| P15c | `zos_spawn.c` | `setenv` undeclared without `_UNIX03_SOURCE`, and `_UNIX03_SOURCE` breaks the static link | **done** -- no `setenv` at all: `putenv()` with static strings, which needs no feature macro. Kept: it is correct on its own terms, and independent of the link failure |
 | B2 | `zos_spawn.c` | `_BPX_JOBNAME` said `OKSH` | **done** -- `ZKSH` |
-| P15b | build, `trap.c`, `strsignal.c` | the link failed with IEW2456E for `__fopen_ascii`, `__sysconf`, `strsignal` | **done** — `_UNIX03_SOURCE` dropped (it switches headers to `__`-prefixed LE entry points a static link cannot resolve); `_POSIX_C_SOURCE=200809L` instead; `strsignal` probed with an `oksh_strsignal` fallback |
+| P15b | build, `trap.c`, `strsignal.c` | the link failed with IEW2456E for `__fopen_ascii`, `__sysconf`, `strsignal` | **done** — `_UNIX03_SOURCE` dropped; `_POSIX_C_SOURCE=200809L` instead; `strsignal` probed with an `oksh_strsignal` fallback. **Partly retracted:** the two `__` symbols were ncurses's, not `_UNIX03_SOURCE`'s; only the `strsignal` half of this entry was ever the real cause (P24) |
 | P16 | `portable.h` | z/OS has no `st_mtim` (only `st_mtime`) and no `sig_t` typedef | **no change needed** — checks answer correctly, existing fallbacks apply |
 | P17 | `path.c`, `exec.c` | `_PATH_DEFPATH` and default `PATH` | z/OS default `/bin:/usr/bin` plus `/usr/local/bin` |
 | P18 | `exec.c` | `execve` `ENOEXEC` fallback shell | point at `zksh` or `/bin/sh`, deliberately |
@@ -73,6 +79,28 @@ Found by reading the tree and the z/OS reference books. Each is
 | P20 | `mail.c` | `MAIL`/`MAILPATH` stat checks | verify `stat()` on `/u/...` mailboxes |
 | P21 | `tty.c`, `jobs.c` | `tcsetpgrp` under a line-mode OMVS session | must degrade without error |
 | P22 | `signame.c`, `siglist.c` | signal name table | verify z/OS signal names match the table |
+| P23 | `c_test.h`, `edit.h` | neither header is self-contained | **done** -- the clang-format run (62cbee2) sorted includes and thereby moved `c_test.h`/`edit.h` in front of `sh.h` in `c_test.c`, `exec.c`, `syn.c`, `edit.c`, `emacs.c`, `vi.c`; both headers only worked because the includer had already pulled in the definition. `c_test.h` now forward-declares `struct XPtrV`, `edit.h` includes `<stdbool.h>`. Measured: reverting them fails the build with `unknown type name 'XPtrV'` and `unknown type name 'bool'` |
+| P24 | `CMakeLists.txt`, `src/zos/link_driver.c` | the z/OS link failed with IEW2456E for `__fopen_ascii` and `__sysconf` | **done, pending z/OS confirmation** -- see below |
+
+### P24: what actually failed to link, and why
+
+The earlier entries blamed `_UNIX03_SOURCE` and `confstr()`. Both were
+wrong. Bisected on the z/OS host against the real object set:
+
+```
+var.c.obj alone                                -> clean link
+var.c.obj + libncursesw.a (either zopen copy)  -> __sysconf, __fopen_ascii
+```
+
+Those two are Language Environment services that the zopen ncurses
+archives reference. They are resolved when `ibm-clang64` puts the LE
+C runtime linkage on the link command -- which it does when a **C
+source file** is among the inputs. CMake links objects only, so an
+archive that expects the CRT comes up short. Hence
+`src/zos/link_driver.c`: an empty translation unit whose only purpose
+is to be a source file on the link line. It is a link flag in the only
+form CMake passes through unchanged. Do not delete it for looking
+empty.
 
 ### Language
 

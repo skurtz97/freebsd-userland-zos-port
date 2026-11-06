@@ -114,6 +114,14 @@ if(ZKSH_ZOS)
   # zos_spawn.c lives at src/ root, not src/zos/, so that main.c and
   # jobs.c can #include "zos_spawn.h" without an extra -I.
   target_sources(zksh PRIVATE ${ZKSH_SRC_DIR}/zos_spawn.c)
+
+  # ibm-clang64 adds the Language Environment C runtime linkage only
+  # when a C source file is on the link command. CMake links objects
+  # only, so an archive that expects the CRT (zopen's libncursesw.a)
+  # fails the bind with __fopen_ascii and __sysconf unresolved.
+  # Putting one empty translation unit in the target restores it.
+  # docs/port.md P24.  Do not remove because it looks empty.
+  target_sources(zksh PRIVATE ${ZKSH_SRC_DIR}/zos/link_driver.c)
   # The z/OS headers gate interfaces on a stack of feature macros, and
   # each one hides different things:
   #   _ALL_SOURCE       the broad "make everything visible" switch
