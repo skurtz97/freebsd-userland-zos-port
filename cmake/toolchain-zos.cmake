@@ -8,7 +8,7 @@
 # VERIFIED 2026-11-05 on a real z/OS system (Open XL 2.1, CMake 3.31):
 #   - CMake ships no Platform module for z/OS, and the name "z/OS"
 #     warns on every probe. The system is named ZKSH-ZOS and
-#     cmake/Platform/ZKSH-ZOS-Initialize.cmake supplies the module.
+#     cmake/Platform/ZKSH-ZOS.cmake supplies the module.
 #   - The compiler is /usr/lpp/IBM/cnw/v2r1/openxl/bin/ibm-clang64.
 #   - -m64 and -march are NOT passed by default: Open XL defaults to
 #     64-bit XPLINK at the machine's own level, and a build made for a
@@ -72,22 +72,67 @@ if(ZKSH_ZOPEN_ROOT)
 endif()
 
 # ---- ncurses ---------------------------------------------------------
-# zopen builds ncurses --enable-widec: libncursesw, headers under
-# include/ncursesw or include/ncurses, terminfo under ASCII_TERMINFO.
-# Pass -DZKSH_CURSES_PREFIX=... if the search below misses it, or
-# -DCURSES_INCLUDE_PATH=... -DCURSES_LIBRARY=... directly.
+# zopen builds ncurses --enable-widec: libncursesw.a plus headers under
+# include/ncursesw, terminfo under ASCII_TERMINFO. Only STATIC archives
+# are installed (libncursesw.a and the _g debug variant), so CMake's
+# FindCurses -- which searches "-lncursesw" as a plain name and does not
+# look inside include/ncursesw -- misses it and the build silently loses
+# line editing. Search for the pieces ourselves and hand them over.
+#
+# Observed on z/OS 2026-11-05:
+#   /usr/local/zopen/usr/local/include/ncursesw/curses.h
+#   /usr/local/zopen/usr/local/lib/libncursesw.a
+#   /usr/local/zopen/usr/local/zopen/ncurses/ncurses-<version>.zos/{include/ncursesw,lib}
+#
+# Override with -DZKSH_CURSES_PREFIX=<pkgdir> or set both
+# -DCURSES_INCLUDE_PATH=... and -DCURSES_LIBRARY=... directly.
 
-if(ZKSH_CURSES_PREFIX)
-  list(APPEND CMAKE_PREFIX_PATH "${ZKSH_CURSES_PREFIX}")
-elseif(ZKSH_ZOPEN_ROOT)
-  foreach(candidate
-      "${ZKSH_ZOPEN_ROOT}/ncurses"
-      "${ZKSH_ZOPEN_ROOT}/usr/local/zopen/ncurses"
-      "${ZKSH_ZOPEN_ROOT}")
-    if(EXISTS "${candidate}/lib" OR EXISTS "${candidate}/lib64")
-      list(APPEND CMAKE_PREFIX_PATH "${candidate}")
+if(NOT CURSES_INCLUDE_PATH OR NOT CURSES_LIBRARY)
+  set(_zksh_curses_roots "")
+  if(ZKSH_CURSES_PREFIX)
+    list(APPEND _zksh_curses_roots "${ZKSH_CURSES_PREFIX}")
+  endif()
+  if(ZKSH_ZOPEN_ROOT)
+    list(APPEND _zksh_curses_roots "${ZKSH_ZOPEN_ROOT}")
+  endif()
+  # <root>/usr/local is the shared prefix zopen installs into, and
+  # <root>/ncurses/<pkg> is the package directory.
+  list(APPEND _zksh_curses_roots
+    /usr/local/zopen
+    /usr/local/zopen/usr/local
+    /usr/local)
+  file(GLOB _zksh_ncurses_pkgs
+    "/usr/local/zopen/usr/local/zopen/ncurses/ncurses-*")
+
+  foreach(_root ${_zksh_curses_roots} ${_zksh_ncurses_pkgs})
+    if(NOT CURSES_INCLUDE_PATH)
+      foreach(_inc "${_root}/include/ncursesw" "${_root}/include/ncurses")
+        if(EXISTS "${_inc}/curses.h")
+          set(CURSES_INCLUDE_PATH "${_inc}")
+          break()
+        endif()
+      endforeach()
+    endif()
+    if(NOT CURSES_LIBRARY)
+      if(EXISTS "${_root}/lib/libncursesw.a")
+        set(CURSES_LIBRARY "${_root}/lib/libncursesw.a")
+      endif()
+    endif()
+    if(CURSES_INCLUDE_PATH AND CURSES_LIBRARY)
+      break()
     endif()
   endforeach()
+
+  if(CURSES_INCLUDE_PATH AND CURSES_LIBRARY)
+    message(STATUS "zksh: z/OS ncurses at ${CURSES_LIBRARY}")
+    message(STATUS "zksh: ncurses headers at ${CURSES_INCLUDE_PATH}")
+  else()
+    message(STATUS
+      "zksh: z/OS ncurses not found (include: '${CURSES_INCLUDE_PATH}' "
+      "lib: '${CURSES_LIBRARY}'); line editing will be disabled. "
+      "Pass -DZKSH_CURSES_PREFIX=<dir> or -DCURSES_INCLUDE_PATH=... "
+      "-DCURSES_LIBRARY=....")
+  endif()
 endif()
 
 set(CURSES_NEED_NCURSES TRUE)

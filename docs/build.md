@@ -78,8 +78,36 @@ visible, not yet fixed; `ZKSH_STRICT` will not pass until they are.
 cmake --build build -j4
 ```
 
-`cmake/toolchain-zos.cmake` selects `ibm-clang64`, `-m64`,
-`-march=z16`, `CMAKE_SYSTEM_NAME=z/OS`, and pretends nothing about the
-zopen path it does not know. Lines marked `VERIFY` are from
-documentation, not from a successful build, and the first build
-should correct them.
+`cmake/toolchain-zos.cmake` selects `ibm-clang64` (Open XL 2.1,
+clang based), names the system `ZKSH-ZOS` so a local
+`cmake/Platform/ZKSH-ZOS.cmake` answers instead of CMake printing
+"System is unknown", and searches the zopen tree for headers and
+libraries. It does **not** pass `-m64` (Open XL defaults to 64-bit
+XPLINK) and does **not** pass `-march`: a binary built for a higher
+level will not run on a lower one, so `-DZKSH_ZOS_ARCH=z16` is opt-in.
+
+Curses is the awkward part. zopen installs only static archives, wide
+(`--enable-widec`) character, headers in `include/ncursesw`, so
+CMake's `FindCurses` -- which looks for `-lncursesw` by name and does
+not search `include/ncursesw` -- finds nothing and the build drops
+line editing with only a warning. The toolchain therefore locates
+`curses.h` and `libncursesw.a` itself and passes them to the
+`CMakeLists.txt` check, which skips `find_package` when they are
+already set and links the archive by path.
+
+Observed layout (2026-11-05):
+
+```
+/usr/local/zopen/usr/local/include/ncursesw/curses.h
+/usr/local/zopen/usr/local/lib/libncursesw.a
+/usr/local/zopen/usr/local/zopen/ncurses/ncurses-<ver>.zos/{include/ncursesw,lib}
+```
+
+Override with `-DZKSH_CURSES_PREFIX=<dir>` or the two
+`-DCURSES_INCLUDE_PATH=` / `-DCURSES_LIBRARY=` variables. Configure
+prints which one won:
+
+```
+-- zksh: z/OS ncurses at /usr/local/zopen/usr/local/lib/libncursesw.a
+-- zksh: ncurses headers at /usr/local/zopen/usr/local/include/ncursesw
+```

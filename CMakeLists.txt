@@ -40,7 +40,15 @@ set(ZKSH_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # yet -- so the results are applied further down.
 
 if(ZKSH_EDITOR)
-  find_package(Curses)
+  # The z/OS toolchain may already have located the static, wide ncurses
+  # that FindCurses cannot see; don't look for a second answer.
+  if(CURSES_LIBRARY AND CURSES_INCLUDE_PATH)
+    set(CURSES_FOUND TRUE)
+    set(CURSES_LIBRARIES "${CURSES_LIBRARY}")
+    set(CURSES_INCLUDE_DIRS "${CURSES_INCLUDE_PATH}")
+  else()
+    find_package(Curses)
+  endif()
   if(NOT CURSES_FOUND)
     # A shell without line editing still builds; failing the whole
     # build because a terminal library was not found is the wrong trade.
@@ -77,8 +85,14 @@ target_compile_definitions(zksh PRIVATE
 # Apply the curses detection done above, now that the target exists.
 if(ZKSH_EDITOR AND CURSES_FOUND)
   target_include_directories(zksh PRIVATE ${CURSES_INCLUDE_DIRS})
-  target_link_libraries(zksh PRIVATE ${CURSES_LIBRARIES})
-  message(STATUS "zksh: line editing with ${CURSES_LIBRARIES}")
+  # An absolute path to a static archive links as a file, which is what
+  # z/OS needs (only libncursesw.a is installed, no shared object).
+  if(CURSES_LIBRARY MATCHES "\\.a$")
+    target_link_libraries(zksh PRIVATE "${CURSES_LIBRARY}")
+  else()
+    target_link_libraries(zksh PRIVATE ${CURSES_LIBRARIES})
+  endif()
+  message(STATUS "zksh: line editing with ${CURSES_LIBRARY}")
 endif()
 
 if(ZKSH_STRICT)
