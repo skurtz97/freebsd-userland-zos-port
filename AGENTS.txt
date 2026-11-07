@@ -50,6 +50,9 @@ different set. A function "missing" on z/OS is usually a missing macro.
   _ALL_SOURCE        the broad switch
   _XPLATFORM_SOURCE  BSD/X-Open: flock(), timeradd()/timersub()
   _OPEN_SYS          z/OS UNIX: setgroups()
+  _OPEN_SYS_FILE_EXT extended file data: struct stat's st_tag
+                     (ft_ccsid, ft_txtflag), fcntl()'s F_SETTAG and
+                     F_CONTROL_CVT
   _POSIX_C_SOURCE=200809L  POSIX.1-2008: strsignal()
 
   NOT _UNIX03_SOURCE. It switches the headers to the __-prefixed LE
@@ -57,8 +60,8 @@ different set. A function "missing" on z/OS is usually a missing macro.
   resolve those in a statically linked program: IEW2456E, exit 12.
   _ALL_SOURCE already gives setenv() under its non-POSIX name.
 
-The build passes all four (CMakeLists.txt, ZKSH_ZOS) and the probes
-pass the same three (cmake/checks.cmake). If you add a probe, add the
+The build passes all five (CMakeLists.txt, ZKSH_ZOS) and the probes
+pass the same set (cmake/checks.cmake). If you add a probe, add the
 macros to both or the probe lies. Confirm against the CRTL reference in
 ~/docs/mainframe/txt/zos-c-runtime-library.txt, which states the exact
 `#define` line each function needs -- do not guess, the docs are local.
@@ -132,6 +135,12 @@ behaviour), docs/language.md (anything a parser now accepts).
   - /bin/sh cannot run this repo's scripts ("FSUM7332 syntax error:
     got ("); it has no $( ). Use bash or oksh. Tagging the file UTF-8
     does not help, and _BPXK_AUTOCVT does not change it.
+  - **A tagged script does not run.** zksh executes only UNTAGGED
+    scripts on z/OS; a tagged one is converted EBCDIC to ASCII on read
+    while the literals stay EBCDIC, so the newline is not a separator
+    and the parse collapses (docs/port.md P29). Every tests/*.sh is
+    UTF-8-tagged, so the script suite cannot pass on z/OS. Do not
+    re-tag the tests to hide it; fix the conversion.
   - libncursesw.a does not bind alone: it needs zoslib
     (-lzoslib -lzoslib-supp). The ncurses pkg-config Libs line says so;
     the toolchain finds it.
@@ -145,6 +154,22 @@ behaviour), docs/language.md (anything a parser now accepts).
   - The CMake cache is stickier than it looks: a changed probe, a
     changed find_program, or a changed toolchain needs a fresh build
     dir, not just a rebuild. Two sessions were spent on stale caches.
+  - **The z/OS shell does not automatically convert your text.** `od
+    -c`, `cat`, `wc -l` and `grep` read IBM-1047 files as bytes: `wc
+    -l` reports 0 lines for a 39,000-line source file (EBCDIC newline
+    is 0x15, not 0x0A), and `cat` echoes EBCDIC that arrives as `?.`
+    noise. Do not conclude a file is empty or corrupt from that. Pipe
+    through `base64` to get text across ssh intact:
+    `ssh cbt 'base64 < file' | base64 -d`.
+  - Do not hand-edit sources in place on the host with `awk`/`sed`:
+    the z/OS tools mangle long lines (FSUM9393, limit 20,000) and a
+    half-written file is left behind. Edit locally, `scp`, then
+    `chtag -tc UTF-8` if the copy lost its tag. An untagged source
+    file fails the compile with `EDC5122I Input/output error`.
+  - **A stdout redirect on z/OS may be ASCII or EBCDIC depending on
+    the destination's tag**, so "decoding" the output of a test can
+    turn a correct result into noise. Pre-tag the file (`: > f;
+    chtag -tc IBM-1047 f`) exactly as tests/run.sh does.
 
 6. RECURRING MISTAKES
 
