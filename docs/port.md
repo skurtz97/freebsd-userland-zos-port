@@ -184,3 +184,71 @@ Two things this cost, recorded so they are not relearned:
 - `Xinit()` allocates from `ATEMP`, the same area the caller's pattern
   and replacement often live in, so a naive implementation corrupts its
   own arguments mid-scan. `replacesub()` copies them first.
+
+## P28 / P29 (2026-11-07): the first z/OS compile of `zos_builtins.c`, and a script-reading defect
+
+| # | File | Edit | Reason | State |
+| - | ---- | ---- | ------ | ----- |
+| P28 | `CMakeLists.txt`, `cmake/checks.cmake`, `src/zos_builtins.c` | `_OPEN_SYS_FILE_EXT` added to the z/OS feature-macro stack | `struct stat`'s `st_tag` (`ft_ccsid`, `ft_txtflag`) does not exist without it. AGENTS.txt 2a says the macros are the first thing to check and lists each one with the interface it hides; this one was missing, so `zos_builtins.c` had never compiled: `no member named 'st_tag' in 'struct stat'` (5 errors). The CRTL reference's `__chattr` example states the `#define` line. Added to the target **and** the probes (2a: "add the macros to both or the probe lies") | **done**: `zos_builtins.c` compiles and links on z/OS for the first time |
+
+### P29: zksh cannot run a *tagged* script on z/OS
+
+Found while checking that the newly-built `tests/zos.sh` passed. It
+did not, and neither did any other script in the suite — `ctest`'s
+`regression` case was failing on z/OS, and the "4/4 green" in
+docs/status.md covered only the four `-c` smoke tests.
+
+**Measured, on a clean build of the committed tree, with a script that
+holds EBCDIC bytes (`97 99 89 95 A3 40 D6 D2 15` = `print OK`):**
+
+| File tag | Result |
+| -------- | ------ |
+| untagged | `OK`, status 0 — **works** |
+| `IBM-1047` | `f.sh[2]: pri: not found`, status 127 — **fails** |
+
+**Why.** Reading a *tagged* file inside zksh returns **ASCII** bytes,
+even though zksh is a native EBCDIC program (`'A'` compiles to `0xC1`,
+`'\n'` to `0x15`, `' '` to `0x40`, all checked). Instrumenting
+`getsc_line()` and a bare `open()`+`read()` in `main.c` showed the same
+nine bytes for `print OK\n` (`70 72 69 6e 74 20 4f 4b 0a`) where the
+file holds `97 99 89 95 a3 40 d6 d2 15`. So automatic conversion is
+converting **EBCDIC to ASCII** for this program, and every comparison
+against a string literal then fails: `\n` is `0x15` in the code and
+`0x0a` in the buffer, so the newline is not a separator, the line never
+ends, and the leftover fragment becomes a command name.
+
+Established while narrowing it:
+
+- A standalone `ibm-clang64` program reading the same file gets the
+  true EBCDIC bytes, with or without zoslib linked, so the conversion
+  is not "zoslib's `open()`".
+- `_BPXK_AUTOCVT=ON`, `OFF`, empty and unset all convert; so does
+  `_TAG_REDIR_IN=BIN`. It is the **file tag** that decides, not the
+  environment variable.
+- `shf_open()`'s `fcntl(fd, F_DUPFD, FDBASE)` is innocent: `dup()`,
+  `dup2()` and `F_DUPFD` all preserve the raw EBCDIC bytes.
+- `F_CONTROL_CVT` (`_OPEN_SYS_FILE_EXT`), `F_SETTAG` and `__chattr()`
+  are the documented controls. The unsettled question is *which*
+  mechanism is converting and why it chose ASCII as the target.
+
+**Ordered next steps, cheapest first:**
+
+1. `setlocale(LC_ALL, "")` early in `main()`. The z/OS UNIX User's
+   Guide (BPXA400, "Shell scripts") says a script's code page must
+   match the locale it runs in; zksh never calls `setlocale()`, so the
+   conversion target has nothing but a default to go on.
+2. `fcntl(fd, F_CONTROL_CVT, 0)` after `shf_open()`'s `open()`, if
+   step 1 is not the whole answer. That is zash's `_TAG_REDIR_IN`
+   mechanism, and docs/zos-changes.md already lists porting it.
+3. Only if both fail: whether the shell should call `setlocale()` at
+   all, or whether z/OS wants scripts to be untagged. `_BPXK_AUTOCVT`'s
+   three settings are `ON`, `OFF` and `ALL`; the shell may need to
+   scrub it for its own reads.
+
+**Consequence for everything else in this tree.** Every `tests/*.sh` is
+UTF-8-tagged (that is what git and `chmod` leave, and it is correct:
+they are ASCII text), so the suite cannot pass on z/OS until this is
+fixed. The tests are not wrong and must not be re-tagged to hide it —
+AGENTS.txt 3 says a file's character set is its chtag, and a test file
+of ASCII text is properly tagged UTF-8. Do not "fix" this by converting
+the test scripts to IBM-1047.

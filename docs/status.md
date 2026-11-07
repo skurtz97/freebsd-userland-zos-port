@@ -52,7 +52,26 @@ CMake 3.31 + Ninja from zopen, ncurses 6.6 wide static, zoslib.
 | Binary | 3,493,888 bytes, XPLINK 64-bit, static ncurses + zoslib |
 | `-c` scripts | `print`, `echo $(( ))`, `set -A`, `typeset` scoping, `[[ ]]`, `for`, command substitution, `trap` + `kill -USR1` all verified |
 | External commands | `zksh -c 'uname -a'` runs and its output reaches the parent |
-| ctest | 4/4 -- `smoke_print`, `smoke_arith`, `smoke_array`, `smoke_typeset` |
+| ctest | 4/4 -- `smoke_print`, `smoke_arith`, `smoke_array`, `smoke_typeset`. **The `regression` case fails**: see "Tagged scripts do not run" below |
+
+### Tagged scripts do not run on z/OS (measured 2026-11-07)
+
+zksh executes a script only if the file is **untagged**. A script
+carrying any tag -- including the UTF-8 tag git and `chmod` leave on
+plain ASCII text -- is converted EBCDIC to ASCII on read, while the
+shell's own literals are EBCDIC, so parsing collapses:
+
+```
+$ chtag -b  ok.sh; zksh ok.sh   -> OK, status 0
+$ chtag -tc IBM-1047 e.sh; zksh e.sh
+/tmp/.../e.sh[2]: pri: not found        status 127
+```
+
+The blob held `print OK` in IBM-1047 both times; only the tag differed.
+Every `tests/*.sh` is UTF-8-tagged, so the script suite cannot pass on
+z/OS yet, and the earlier "`ctest` green on z/OS" covered the four
+`-c` smoke tests plus a `regression` case that was in fact failing.
+Root cause and the ordered next steps: docs/port.md P29.
 
 Two facts that are not optional reading before writing a test here:
 
@@ -74,11 +93,27 @@ Two facts that are not optional reading before writing a test here:
   (`doc/ZOS-NOTES.md` P1-P5 remain claims.)
 - Job control (`set -m`, `&`, `wait`, notifications), co-processes.
 - Line editing: linked against ncurses, never driven through a pty.
-- `tso`, `alloc`, `free`, `zosclass`, `chtag`, `extattr`: written
-  (`src/zos_builtins.c`), built on Linux where they answer "only
-  available on z/OS" with status 2. Their `__MVS__` branch has **never
-  been compiled**, let alone run.
+- `tso` and `alloc`/`free` reach `/bin/tsocmd` and return its status, but
+  a plain `ssh` session has no TSO/E address space: `tsocmd` answers 0
+  with no output for `tsocmd LISTC` and for a nonsense command alike, so
+  what the builtins *build* is verified and what TSO does with it is
+  not. `chtag -p` and `zosclass` are verified end to end (below).
 - `_TAG_REDIR_*` and MVS data set redirection (still to port).
+
+### The z/OS builtins, run on z/OS (2026-11-07)
+
+`src/zos_builtins.c` compiled on z/OS for the first time after P28
+(`_OPEN_SYS_FILE_EXT`). Measured in a script the shell could read
+(untagged, see P29):
+
+| Command | Result |
+| ------- | ------ |
+| `zosclass` | `batch` -- correct: stdin is not a tty over ssh |
+| `zosclass -x` | status 2, `usage: zosclass` |
+| `chtag -p /etc/profile` | `t IBM-1047 /etc/profile` -- from `st_tag`, no spawn |
+| `tso` (no args) | status 2, `usage: tso` |
+| `tso LISTCAT` | status 0, no output (see above) |
+| `whence -v tso` | `tso is a shell builtin` |
 
 ## Gaps against the direction
 
