@@ -1154,6 +1154,7 @@ static char *replacesub(char *str, char *pat, char *rep, int how) {
    * after one match unless // was asked for.
    */
   for (sp = str; *sp != '\0';) {
+    const char *start = sp;
     const char *best = NULL;
 
     /* Every possible end for a match starting at sp, shortest first.
@@ -1187,9 +1188,10 @@ static char *replacesub(char *str, char *pat, char *rep, int how) {
     sp = best;
     if (!(how & REP_ALL))
       break;
-    /* Guard against a pattern that matches the empty string: step one
-     * character so the scan always advances. */
-    if (best == sp) {
+    /* A pattern that matches the empty string would leave sp where it
+     * started and loop forever: step one character first, and let the
+     * next position try again. */
+    if (best == start) {
       if (*sp == '\0')
         break;
       Xcheck(xs, xp);

@@ -28,6 +28,24 @@ print -- "${p/.d/}"
 # A replacement is literal: its metacharacters are not re-interpreted.
 print -- "${p//./*}"          # '*', not "everything"
 
+# Adjacent matches.  The first version of this code advanced one
+# character too many after each replacement, which is invisible when
+# matches are separated (as they are in ${v//l/L} above, where the l's
+# of /usr/local are not adjacent) and obvious here.  A test that cannot
+# catch its own bug is not a test.
+h=hello
+print -- "${h//l/L}"          # heLLo -- both l's
+h=llll
+print -- "${h//l/L}"          # LLLL
+h=aaa
+print -- "${h//a/}"           # empty: every match deleted
+print -- "${h/a/X}"           # Xaa -- first only
+
+# Matches must not eat neighbours.
+h=abcabc
+print -- "${h//abc/-}"        # --
+print -- "${h/abc/-}"         # -abc
+
 # Unset and empty behave like the other substitutions.
 unset u
 print -- "[${u/a/b}]"
