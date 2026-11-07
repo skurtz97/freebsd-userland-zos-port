@@ -21,7 +21,7 @@ the ones that are accidents.
 
 | Script uses | z/OS `sh` | zksh | Action |
 | ----------- | --------- | ---- | ------ |
-| `${v/pat/rep}` | no | **no** | add it (planned); until then use `${v#...}` |
+| `${v/pat/rep}` | no | yes (ksh glob; see language.md) | none -- but the pattern is a glob, not a regex |
 | `$[...]` | yes | no (unless `set -o zos`) | rewrite as `$(( ))` |
 | `function name { }` | no | yes | fine |
 | `set -A` | no | yes | fine |

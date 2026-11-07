@@ -109,7 +109,7 @@ pure POSIX runs the system `sh`; `compat.md` says so.
 | # | Question | State |
 | - | -------- | ----- |
 | D1 | Install as `zksh` only, or also as `sh`? | open — default: `zksh` only |
-| D2 | `${v/pat/rep}` pattern syntax: ksh glob or POSIX bracket expressions? | open — needed first |
+| D2 | `${v/pat/rep}` pattern syntax: ksh glob or POSIX bracket expressions? | **decided 2026-11-06: ksh glob** — see `language.md` Level 2 |
 | D3 | `alloc`/`free`: DSN, DD, TSO ALLOC, or all three? | open |
 | D4 | Line-mode editor: numbered history + `!!` (ksh `fc` exists), or libedit dumb-terminal profile? | open |
 | D5 | Keep `oksh` as the upstream to rebase on, or fork permanently at 7.9? | open — default: rebase |

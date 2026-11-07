@@ -55,16 +55,62 @@ Verified against the built shell on Linux, 2026-11-05
 
 | Feature | Form | Status |
 | ------- | ---- | ------ |
-| `ULTRIX`-free parameter substitution | `${v/pat/rep}`, `${v//pat/rep}`, `${v/#pat/rep}`, `${v/%pat/rep}` | **missing** (bad substitution). Needed by many Linux-era scripts. |
-| Case modification | `${v^^}`, `${v,,}` | missing; decide with the above |
+| `ULTRIX`-free parameter substitution | `${v/pat/rep}`, `${v//pat/rep}`, `${v/#pat/rep}`, `${v/%pat/rep}` | added 2026-11-06, below |
+| Case modification | `${v^^}`, `${v,,}` | refused for now; see below |
 | `read -t sec`, `read -u fd` | timeout and fd | present in ksh88? verify on z/OS |
 | z/OS builtins | `tso`, `alloc`, `free`, `zosclass`, `chtag`, `extattr` | `tso`/`chtag`/`extattr` in zash, to port |
 
 The `${v/pat/rep}` gap is the single most likely "why doesn't my
 script work" complaint, because bash, mksh and ksh93 all have it and
-pdksh never did. It is the first language addition to make, and it
-needs a decision on pattern syntax (ksh glob vs. POSIX bracket
-expressions) recorded here when made.
+pdksh never did. It was added on 2026-11-06; the rules below are the
+decision (D2 in `direction.md`), and `tests/param.sh` is the proof.
+
+### `${v/pat/rep}`: the four forms and the pattern syntax
+
+| Form | Replaces |
+| ---- | -------- |
+| `${v/pat/rep}` | the **first** match of `pat` anywhere in `$v` |
+| `${v//pat/rep}` | **every** match |
+| `${v/#pat/rep}` | `pat` only when it matches at the **beginning** |
+| `${v/%pat/rep}` | `pat` only when it matches at the **end** |
+
+`pat` follows the **same** rules as every other pattern in the
+language: ksh glob, matched unanchored as a substring for the plain
+and `//` forms. `.` and `*` mean what they mean in `case` and in
+`${v#pat}` -- `*` matches any run of characters, `?` any one,
+`[...]` / `[!...]` a set, and quoting a metacharacter makes it literal.
+That is the decision (D2): **ksh glob, not POSIX bracket-expression
+regex**. A second pattern dialect inside one shell is exactly what
+Rule 1 forbids, and the `#`/`%`/`##`/`%%` operators already users of
+this syntax would otherwise disagree with it.
+
+Consequences worth knowing, because they differ from bash:
+
+- The replacement is **literal text**, not a back-reference: `${v/a/&}`
+  inserts `&`, it does not re-insert the match. `&` is not special.
+- An empty `pat` is an error (`bad substitution`), not "match anywhere":
+  bash inserts the replacement between every character, which no
+  script has ever wanted and which would make a typo catastrophic.
+- An empty `rep` deletes the match: `${v/pat/}` has an empty
+  replacement part, which is different from the `${v/pat}` form bash
+  also accepts. zksh requires the second `/` and rejects `${v/pat}`
+  as a bad substitution, so a deletion is always written explicitly.
+- `${v/pat/rep}` on an unset variable is empty unless `set -u`, which
+  is the same rule as `${v:-}` and the other substitutions.
+- **Not on `$*`, `$@`, `${a[*]}` or `${a[@]}`.** `${a[*]/x/y}` is a bad
+  substitution, like `${a[*]#x}` already is. The element-by-element
+  form is a separate expansion path; adding it means threading the
+  replacement through it, and no script in the wild needs it more than
+  a loop: `for e in "${a[@]}"; do ...; done`. Refusing loudly beats
+  half-working.
+
+### Case modification: refused
+
+`${v^^}`, `${v,}`, `${v,,}`, `${v~}` are **not** accepted. They are a
+bash 4 / ksh93 feature, they interact badly with a locale-dependent
+case mapping (and z/OS has several code pages), and `${v:u}`-style
+functions are a two-line script: `v=$(print -n "$v" | tr a-z A-Z)`.
+If they are ever added, they are added here first.
 
 ## Level 3 — refused, with reason
 

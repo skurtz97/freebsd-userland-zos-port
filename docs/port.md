@@ -159,3 +159,28 @@ declaration.
 
 | P26 | `portable.h`, `cmake/checks.cmake`, `cmake/pconfig.h.in` | `reallocarray()`, `setresuid()`, `setresgid()` were undeclared in `history.c` and `misc.c` once `HAVE_*` became true | **done** -- "the symbol links" and "a header declares it" are two questions, and z/OS answers them differently: the shell links zoslib (ncurses needs it), zoslib supplies these symbols, and no system header declares them. Every function in `ZKSH_FUNCS` that links now also gets `HAVE_x_DECL` from a compile-only probe (`(void)fn;`), and `portable.h` declares the prototype unless both macros are set. Found immediately after the probe fix in P25/P27 |
 | P27 | `cmake/checks.cmake` | `check_function_exists()` reported every function absent on every platform | **done** -- the loop pre-set `HAVE_x` to 0 "so a stale cached answer cannot survive", but the module runs only `if(NOT DEFINED ...)`, so the probes were skipped and a skip is indistinguishable from "not found". Fedora: `HAVE_STRLCAT` undef although glibc has it. Now `unset()` (normal and CACHE) before each check. On z/OS the probes also link `ZKSH_CURSES_LINK_ITEMS`, because the shell does |
+
+## Feature edits (2026-11-06)
+
+Edits to base files that add a documented language feature, rather than
+making an existing one compile on z/OS.
+
+| # | File | Edit | Reason | State |
+| - | ---- | ---- | ------ | ----- |
+| L1 | `lex.c` | new lexer state `SREBSUB`: after `${var`, an unquoted `/`, `//`, `/#` or `/%` starts the replacement qualifier; the *next* unquoted `/` is emitted as `OREPSUB` and the rest is the replacement | `${v/pat/rep}` did not exist in pdksh; docs/language.md Level 2 | **done**, tested (`tests/param.sh`) |
+| L2 | `tree.h` | new control code `OREPSUB` (12) separating pattern from replacement | the replacement is not a pattern, so the split must be explicit rather than found by scanning expanded text | **done** |
+| L3 | `tree.c` | `wdscan()`, `wdstrip()`, the trees printer and `snptreef()` all know `OREPSUB` (`/` when printing back, nothing when stripping) | a new control code that the word walkers ignore corrupts every enclosing word | **done** |
+| L4 | `eval.c` | `varsub()` recognises `/` and the three anchored forms; `c == '/'` expands the word instead of skipping it (it is not in `C_SUBOP2`, which is what made the first attempt a silent no-op); `replacesub()` does the substitution; arrays and `$*`/`$@` are refused like `${v#pat}` | the feature itself | **done** |
+| L5 | `sh.h`, `c_ksh.c` | prototypes and `builtins[]` entries for the six z/OS builtins | `tso`, `alloc`, `free`, `zosclass`, `chtag`, `extattr` (docs/zos-changes.md) | **done** off z/OS (status 2); z/OS paths unverified |
+| L6 | `zos_builtins.c` (new) | the z/OS dialect builtins | see docs/zos-changes.md | **done** off z/OS; the `__MVS__` branch has never been compiled |
+
+Two things this cost, recorded so they are not relearned:
+
+- `gmatch_()`'s `has_globbing()` **only understands MAGIC-escaped
+  patterns**. Passing it a `debunk()`ed `@(X)` makes it fall back to
+  `strcmp` and never match. The trims work because they hand it the raw
+  `ds` bytes; `replacesub()` must do the same, and `debunk()` is only
+  for printing.
+- `Xinit()` allocates from `ATEMP`, the same area the caller's pattern
+  and replacement often live in, so a naive implementation corrupts its
+  own arguments mid-scan. `replacesub()` copies them first.

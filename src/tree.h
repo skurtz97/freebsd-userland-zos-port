@@ -67,6 +67,11 @@ struct op {
 #define OPAT	9		/* open pattern: *(, @(, etc. */
 #define SPAT	10		/* separate pattern: | */
 #define CPAT	11		/* close pattern: ) */
+/* Separator between pat and rep in ${v/pat/rep}.  It is a control
+ * code, not a byte, so a '/' in either part (typed or from a variable)
+ * stays a literal character -- the split happens at compile time, where
+ * the user's unquoted separator lives.  See varsub() in eval.c. */
+#define OREPSUB	12		/* pat/rep separator in ${v/pat/rep} */
 
 /*
  * IO redirection

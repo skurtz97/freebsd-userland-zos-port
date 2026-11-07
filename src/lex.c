@@ -31,6 +31,7 @@
 #define SPATTERN 11		/* parsing *(...|...) pattern (*+?@!) */
 #define STBRACE 12		/* parsing ${..[#%]..} */
 #define	SBRACEQ	13		/* inside "${}" */
+#define	SREBSUB	14		/* inside ${v/pat...rep}: pat part */
 
 /* Structure to keep track of the lexing state and the various pieces of info
  * needed for each particular state.
@@ -388,6 +389,35 @@ yylex(int cf)
 					if (c == '#' || c == '%') {
 						ungetsc(c);
 						PUSH_STATE(STBRACE);
+					} else if (c == '/') {
+						/* ${v/pat/rep} and ${v//pat/rep}.
+						 * A second '/' here means "every match";
+						 * a following '#' or '%' anchors the
+						 * pattern.  The marker is
+						 * COMSUB-style: keep it in the word so
+						 * varsub() sees the qualifier, and let
+						 * SREBSUB turn the *next* unquoted '/'
+						 * into OREPSUB.  Quoting a '/' (\/ or
+						 * '/') leaves it a literal part of the
+						 * pattern.
+						 */
+						int global = 0, anchor = 0;
+
+						c2 = getsc();
+						if (c2 == '/') {
+							global = 1;
+							c2 = getsc();
+						}
+						if (c2 == '#' || c2 == '%')
+							anchor = c2;
+						else
+							ungetsc(c2);
+						*wp++ = CHAR, *wp++ = '/';
+						if (global)
+							*wp++ = CHAR, *wp++ = '/';
+						if (anchor)
+							*wp++ = CHAR, *wp++ = anchor;
+						PUSH_STATE(SREBSUB);
 					} else {
 						ungetsc(c);
 						if (state == SDQUOTE ||
@@ -566,6 +596,44 @@ yylex(int cf)
 		case SBRACEQ:
 			/*{*/
 			if (c == '}') {
+				POP_STATE();
+				*wp++ = CSUBST;
+				*wp++ = /*{*/ '}';
+			} else
+				goto Sbase2;
+			break;
+
+		case SREBSUB:
+			/* Inside ${v/pat...rep}: the pattern part.
+			 * The first unquoted '/' ends the pattern and
+			 * becomes OREPSUB; everything else is ordinary
+			 * word text, so $var, quotes, $(...) and
+			 * *?[!] all work as in any other pattern.
+			 * A quoted '/' arrives here as a QCHAR, not as
+			 * c, so \/ and '/' stay literal.
+			 */
+			if (c == '/') {
+				POP_STATE();
+				*wp++ = OREPSUB;
+				/* The replacement is a plain word: no
+				 * globbing of * in it, and no field
+				 * splitting.  SBRACE vs SBRACEQ keeps
+				 * the quoting rules of the ${} it is
+				 * inside.
+				 */
+				if (state == SDQUOTE || state == SBRACEQ)
+					PUSH_STATE(SBRACEQ);
+				else
+					PUSH_STATE(SBRACE);
+			} else if (c == '}') {
+				/* ${v/pat} with no replacement: refused.
+				 * bash accepts it as a deletion; requiring
+				 * the second '/' keeps one spelling for one
+				 * thing, and an empty replacement is
+				 * always visible as ${v/pat/}.  Close the
+				 * substitution normally; varsub() sees no
+				 * OREPSUB and reports the bad substitution.
+				 */
 				POP_STATE();
 				*wp++ = CSUBST;
 				*wp++ = /*{*/ '}';

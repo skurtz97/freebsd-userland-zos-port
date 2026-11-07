@@ -324,6 +324,9 @@ tputS(char *wp, struct shf *shf)
 			tputc(*wp++, shf);
 			tputc('(', shf);
 			break;
+		case OREPSUB:
+			tputc('/', shf);
+			break;
 		case SPAT:
 			tputc('|', shf);
 			break;
@@ -524,6 +527,8 @@ wdscan(const char *wp, int c)
 			nest++;
 			wp++;
 			break;
+		case OREPSUB:
+			break;
 		case SPAT:
 		case CPAT:
 			if (c == wp[-1] && nest == 0)
@@ -597,6 +602,9 @@ wdstrip(const char *wp)
 		case OPAT:
 			shf_putchar(*wp++, &shf);
 			shf_putchar('(', &shf);
+			break;
+		case OREPSUB:
+			shf_putchar('/', &shf);
 			break;
 		case SPAT:
 			shf_putchar('|', &shf);

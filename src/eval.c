@@ -44,6 +44,14 @@ typedef struct Expand {
 #define XNULLSUB 5 /* "$@" when $# is 0 (don't generate word) */
 #define XSUBMID 6  /* middle of expanding ${} */
 
+/* Modifiers for the ${v/pat/rep} family, held in Expand.stype beside the
+ * '/' operator (docs/language.md, "the four forms").  They are above the
+ * 0x7f operator mask, so `stype & 0x7f' is still the operator.
+ */
+#define REP_ALL 0x100  /* ${v//pat/rep}: every match, not the first */
+#define REP_HEAD 0x200 /* ${v/#pat/rep}: only at the start */
+#define REP_TAIL 0x400 /* ${v/%pat/rep}: only at the end */
+
 /* States used for field splitting */
 #define IFS_WORD 0  /* word has chars (or quotes) */
 #define IFS_WS 1    /* have seen IFS white-space */
@@ -54,6 +62,7 @@ typedef struct Expand {
 static int varsub(Expand *, char *, char *, int *, int *);
 static int comsub(Expand *, char *);
 static char *trimsub(char *, char *, int);
+static char *replacesub(char *, char *, char *, int);
 static void glob(char *, XPtrV *, int);
 static void globit(XString *, char **, char *, XPtrV *, int);
 static char *maybe_expand_tilde(char *, XString *, char **, int);
@@ -328,6 +337,7 @@ void expand(char *cp,  /* input word */
             switch (stype & 0x7f) {
             case '#':
             case '%':
+            case '/':
               /* ! DOBLANK,DOBRACE_,DOTILDE */
               f = DOPAT | (f & DONTRUNCOMMAND) | DOTEMP_;
               quote = 0;
@@ -389,6 +399,67 @@ void expand(char *cp,  /* input word */
         if (f & DOBLANK)
           doblank--;
         switch (st->stype & 0x7f) {
+        case '/': {
+          /* ${v/pat/rep} and siblings.  The expand loop put this into
+           * ds, counting from st->base:
+           *
+           *   MAGIC '@'+0x80   <pattern, MAGIC-escaped>   MAGIC OREPSUB
+           *   <replacement, MAGIC-escaped as ordinary text>
+           *
+           * The opener is the same one the #/% trims prepend, so an
+           * alternation (|) in the pattern means what it means in
+           * case.  The pattern needs its MAGIC ')' closer (the trims
+           * append one) and is then debunk()ed back to text for
+           * gmatch_().  The replacement is literal.
+           */
+          char *we, *sep, *pat, *rep;
+          int plen;
+
+          *dp = '\0';
+          dp = Xrestpos(ds, dp, st->base);
+          for (we = dp; *we != '\0'; we++)
+            if (ISMAGIC(we[0]) && we[1] == OREPSUB)
+              break;
+          if (*we == '\0') {
+            /* ${v/pat} with no replacement: refused, see lex.c. */
+            errorf("%s: bad substitution", st->var->name);
+          }
+          sep = we;
+          plen = (int)(sep - dp) + 4;
+          pat = alloc(plen, ATEMP);
+          memcpy(pat, dp, sep - dp);
+          pat[sep - dp] = MAGIC;
+          pat[sep - dp + 1] = ')';
+          pat[sep - dp + 2] = '\0';
+          /* The pattern stays MAGIC-encoded, exactly as the #/% trims
+           * pass theirs: gmatch_()'s has_globbing() only understands
+           * MAGIC-escaped patterns, so a debunk()ed "@(X)" would be
+           * compared literally and never match (measured; this was the
+           * bug that made the first version of this code a no-op). */
+          rep = sep + 2; /* past the MAGIC pair */
+          /* The replacement went through the pattern pass, so any
+           * pattern metacharacter in it carries a MAGIC escape.  It is
+           * literal text, so debunk() it back. */
+          {
+            char *r = str_save(rep, ATEMP);
+            rep = debunk(r, r, strlen(r) + 1);
+          }
+          x.str = replacesub(str_val(st->var), pat, rep, st->stype);
+          if (x.str[0] != '\0') {
+            word = IFS_IWS;
+            type = XSUB;
+          } else if (quote) {
+            word = IFS_WORD;
+            type = XSUB;
+          } else {
+            word = IFS_IWS;
+            type = XNULLSUB;
+          }
+          if (f & DOBLANK)
+            doblank++;
+          st = st->prev;
+          continue;
+        }
         case '#':
         case '%':
           /* Append end-pattern */
@@ -467,6 +538,15 @@ void expand(char *cp,  /* input word */
       case SPAT: /* pattern separator (|) */
         make_magic = 1;
         c = '|';
+        break;
+
+      case OREPSUB: /* pat/rep separator in ${v/pat/rep} */
+        /* Kept as a MAGIC-escaped marker so it survives the second
+         * pass, matching what the '#'/'%' trims do with their
+         * '@'+0x80 openers.  replacsub() splits on it at apply time.
+         */
+        make_magic = 1;
+        c = OREPSUB;
         break;
 
       case CPAT: /* close pattern */
@@ -771,7 +851,28 @@ static int varsub(Expand *xp, char *sp, char *word,
     stype = 0x80;
     c = word[slen + 0] == CHAR ? word[slen + 1] : 0;
   }
-  if (ctype(c, C_SUBOP1)) {
+  if (c == '/') {
+    /* ${v/pat/rep} -- docs/language.md, "the four forms".
+     *   '/'            first match             (stype '/')
+     *   '/' '/'        every match             (stype '/'|REP_ALL)
+     *   '/' '#'        anchored at the start    (stype '/'|REP_HEAD)
+     *   '/' '%'        anchored at the end      (stype '/'|REP_TAIL)
+     * The pattern and replacement that follow are one word separated by
+     * OREPSUB; they are expanded by the normal machinery in expand().
+     */
+    stype = '/';
+    slen += 2; /* the '/' just seen */
+    if (word[slen + 0] == CHAR && word[slen + 1] == '/') {
+      stype |= REP_ALL;
+      slen += 2;
+    } else if (word[slen + 0] == CHAR && word[slen + 1] == '#') {
+      stype |= REP_HEAD;
+      slen += 2;
+    } else if (word[slen + 0] == CHAR && word[slen + 1] == '%') {
+      stype |= REP_TAIL;
+      slen += 2;
+    }
+  } else if (ctype(c, C_SUBOP1)) {
     slen += 2;
     stype |= c;
   } else if (ctype(c, C_SUBOP2)) { /* Note: ksh88 allows :%, :%%, etc */
@@ -794,6 +895,7 @@ static int varsub(Expand *xp, char *sp, char *word,
     case '=': /* can't assign to a vector */
     case '%': /* can't trim a vector (yet) */
     case '#':
+    case '/': /* same: a replacement on $* has no meaning */
       return -1;
     }
     if (genv->loc->argc == 0) {
@@ -816,6 +918,7 @@ static int varsub(Expand *xp, char *sp, char *word,
       case '%': /* can't trim a vector (yet) */
       case '#':
       case '?':
+      case '/': /* not implemented; refuse rather than misbehave */
         return -1;
       }
       XPinit(wv, 32);
@@ -848,13 +951,13 @@ static int varsub(Expand *xp, char *sp, char *word,
 
   c = stype & 0x7f;
   /* test the compiler's code generator */
-  if (ctype(c, C_SUBOP2) ||
+  if (c == '/' || ctype(c, C_SUBOP2) ||
       (((stype & 0x80) ? *xp->str == '\0' : xp->str == null) ? /* undef? */
            c == '=' || c == '-' || c == '?'
                                                              : c == '+'))
     state = XBASE; /* expand word instead of variable value */
   if (Flag(FNOUNSET) && xp->str == null && !zero_ok &&
-      (ctype(c, C_SUBOP2) || (state != XBASE && c != '+')))
+      (c == '/' || ctype(c, C_SUBOP2) || (state != XBASE && c != '+')))
     errorf("%s: parameter not set", sp);
   return state;
 }
@@ -954,6 +1057,155 @@ static char *trimsub(char *str, char *pat, int how) {
   }
 
   return str; /* no match, return string */
+}
+
+/*
+ * perform ${v/pat/rep} and its three siblings in ${}
+ *
+ * The pattern is a ksh glob matched by gmatch_(), the same matcher case
+ * and ${v#pat} use -- that is the D2 decision in docs/language.md, and
+ * it is why there is no second pattern engine here.
+ *
+ *   '/'               first match, anywhere in the value
+ *   '/'|REP_ALL       every match
+ *   '/'|REP_HEAD      only where the value starts
+ *   '/'|REP_TAIL      only where the value ends
+ *
+ * The replacement is literal text: nothing in it is special, and '&' is
+ * not a back-reference (documented; bash's '&' is not followed here).
+ *
+ * Matches are found by trying every substring boundary, shortest first
+ * at each start, which is what makes `a*' behave the way it does in
+ * case: the shortest match wins.  An empty pattern is refused by
+ * varsub() before this is reached.
+ */
+static char *replacesub(char *str, char *pat, char *rep, int how) {
+  XString xs;
+  char *xp;
+  const char *sp, *pe;
+  size_t replen = strlen(rep);
+  int found = 0;
+
+  /*
+   * Copy the arguments out of ATEMP before allocating: Xinit() and any
+   * afree() below can reuse the very block str/pat/rep live in, which
+   * corrupts them mid-scan (this cost a debugging session).  One
+   * strdup each is cheap and keeps the rest of the shell's memory
+   * conventions alone.
+   */
+  {
+    char *s = str_save(str, ATEMP);
+    char *p = str_save(pat, ATEMP);
+    char *r = str_save(rep, ATEMP);
+    /* s deliberately leaks into xs below; p and r are only read. */
+    Xinit(xs, xp, (int)strlen(s) + 16, ATEMP);
+    str = s;
+    pat = p;
+    rep = r;
+  }
+
+  /*
+   * Head and tail are one anchored test each.
+   *
+   *   ${v/#pat/rep}  a match must start at the first character
+   *   ${v/%pat/rep}  a match must end at the last character
+   */
+  if (how & (REP_HEAD | REP_TAIL)) {
+    size_t n = strlen(str);
+
+    if (how & REP_HEAD) {
+      for (pe = str + n; pe >= str; pe--) {
+        char c = *pe;
+
+        *(char *)pe = '\0';
+        found = gmatch_(str, pat, false);
+        *(char *)pe = c;
+        if (found)
+          break;
+      }
+      if (!found)
+        return str;
+      memcpy(xp, rep, replen);
+      xp += replen;
+      strlcpy(xp, pe, Xnleft(xs, xp));
+      xp += strlen(pe);
+    } else {
+      for (sp = str; *sp != '\0'; sp++) {
+        if (gmatch_(sp, pat, false)) {
+          found = 1;
+          break;
+        }
+      }
+      if (!found)
+        return str;
+      memcpy(xp, str, (size_t)(sp - str));
+      xp += sp - str;
+      memcpy(xp, rep, replen);
+      xp += replen;
+      *xp = '\0';
+    }
+    return Xclose(xs, xp);
+  }
+
+  /*
+   * Plain and //: walk the value once.  At each position find the
+   * shortest match (the same rule case and the trims use, so `a*' is
+   * not greedy); copy what was skipped and the replacement, and stop
+   * after one match unless // was asked for.
+   */
+  for (sp = str; *sp != '\0';) {
+    const char *best = NULL;
+
+    /* Every possible end for a match starting at sp, shortest first.
+     * The last candidate ends at the end of the value, so a pattern
+     * that ends the string is found too. */
+    for (pe = sp;; pe++) {
+      char c = *pe;
+      int hit;
+
+      *(char *)pe = '\0';
+      hit = gmatch_(sp, pat, false);
+      *(char *)pe = c;
+      if (hit) {
+        best = pe;
+        break;
+      }
+      if (c == '\0')
+        break;
+    }
+
+    if (best == NULL) {
+      /* no match here: this character stays */
+      Xcheck(xs, xp);
+      *xp++ = *sp++;
+      continue;
+    }
+    found = 1;
+    XcheckN(xs, xp, (int)replen + (int)(best - sp));
+    memcpy(xp, rep, replen);
+    xp += replen;
+    sp = best;
+    if (!(how & REP_ALL))
+      break;
+    /* Guard against a pattern that matches the empty string: step one
+     * character so the scan always advances. */
+    if (best == sp) {
+      if (*sp == '\0')
+        break;
+      Xcheck(xs, xp);
+      *xp++ = *sp++;
+    }
+  }
+
+  if (!found)
+    return str;
+  {
+    size_t rest = strlen(sp);
+
+    XcheckN(xs, xp, (int)rest + 1);
+    memcpy(xp, sp, rest + 1);
+    return Xclose(xs, xp + rest);
+  }
 }
 
 /*
