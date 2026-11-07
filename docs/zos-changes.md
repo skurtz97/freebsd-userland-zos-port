@@ -23,19 +23,20 @@ variables switch individual mechanisms.
 ## Builtins
 
 All six exist in `src/zos_builtins.c` and are registered in
-`kshbuiltins[]`. **Status: built and tested off z/OS; the `__MVS__`
-bodies have never been compiled.** Off z/OS each one prints
+`kshbuiltins[]`. **Status: compiled and run on z/OS 2026-11-07**
+(docs/status.md has the measurements; `_OPEN_SYS_FILE_EXT` was the
+missing feature macro, docs/port.md P28). Off z/OS each one prints
 "only available on z/OS" and returns 2, which `tests/zos.sh` checks;
 that is the contract a script can test for.
 
 | Builtin | Status | Behaviour |
 | ------- | ------ | --------- |
-| `tso` | written, unbuilt | `tso command [arg ...]` runs a TSO/E command via `tsocmd`. The in-process path (`IKJTSOEV`) is deliberately not attempted: it needs authorization, and getting it wrong takes the TSO session down instead of returning an error. |
-| `alloc` | written, unbuilt | `alloc "dsn('HLQ.DS') new catalog"`. Arguments are joined and passed as one quoted operand to `tsocmd ALLOC`, because TSO/E ALLOC wants a single operand string. |
-| `free` | written, unbuilt | `free "dsn('HLQ.DS')"`, `free dd(NAME)`, `free all` -- one quoted operand to `tsocmd FREE`. |
-| `zosclass` | written, unbuilt | Prints one word: `omvs`, `telnet`, `rlogin` or `batch`. No arguments, so it composes as `case $(zosclass) in`. `batch` when stdin is not a tty (TSO line mode); otherwise `_BPX_TERMPATH` decides between telnet, rlogin and omvs. |
-| `chtag` | written, unbuilt | `chtag -p file ...` in process from `struct stat.st_tag` (a `stat()`, no spawn); every other form defers to `/bin/chtag`. |
-| `extattr` | written, unbuilt | Defers to `/bin/extattr`. The in-process `+a/-a/+p/+s/+l` forms are not written; the name exists so scripts can rely on it. |
+| `tso` | run on z/OS | `tso command [arg ...]` runs a TSO/E command via `tsocmd`. The in-process path (`IKJTSOEV`) is deliberately not attempted: it needs authorization, and getting it wrong takes the TSO session down instead of returning an error. |
+| `alloc` | run on z/OS | `alloc "dsn('HLQ.DS') new catalog"`. Arguments are joined and passed as one quoted operand to `tsocmd ALLOC`, because TSO/E ALLOC wants a single operand string. |
+| `free` | run on z/OS | `free "dsn('HLQ.DS')"`, `free dd(NAME)`, `free all` -- one quoted operand to `tsocmd FREE`. |
+| `zosclass` | run on z/OS | Prints one word: `omvs`, `telnet`, `rlogin` or `batch`. No arguments, so it composes as `case $(zosclass) in`. `batch` when stdin is not a tty (TSO line mode); otherwise `_BPX_TERMPATH` decides between telnet, rlogin and omvs. |
+| `chtag` | run on z/OS | `chtag -p file ...` in process from `struct stat.st_tag` (a `stat()`, no spawn); every other form defers to `/bin/chtag`. |
+| `extattr` | run on z/OS | Defers to `/bin/extattr`. The in-process `+a/-a/+p/+s/+l` forms are not written; the name exists so scripts can rely on it. |
 
 "Defers" means: build a command line and run it through `command()`,
 so the utility gets the shell's PATH, redirections and exit status.
@@ -43,10 +44,12 @@ Each argument is quoted on the way (a `/` and a `'` are the two that
 matter here), never concatenated raw -- the same rule applies on EBCDIC
 as on ASCII.
 
-Never compiled on z/OS, so these are the first things a build there
-will challenge (`VERIFY` in the source): the `<_Ccsid.h>` header name
-and `__toCSName()` signature, `st_tag.ft_ccsid`/`ft_txtflag`, and that
-`tsocmd` and `/bin/chtag` exist under those names.
+No longer guesses: `<_Ccsid.h>` and `__toCSName()` compile,
+`st_tag.ft_ccsid`/`ft_txtflag` are readable, and `/bin/tsocmd`,
+`/bin/chtag` and `/bin/extattr` all exist. What remains open is what
+`tsocmd` does with an argument: in a plain `ssh` session it returns 0
+with no output for any command, so the deferral and its exit status are
+verified but the TSO/E effect is not.
 
 ## Redirection
 
