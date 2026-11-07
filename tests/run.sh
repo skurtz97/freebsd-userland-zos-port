@@ -17,7 +17,10 @@ zos=0
 [ "$(uname)" = OS/390 ] && zos=1
 fail=0
 for t in "$dir"/*.sh; do
-	case $t in */run.sh) continue ;; esac
+	# run.sh is this runner and run-c.sh is its per-test wrapper (the one
+	# that decodes IBM-1047 on z/OS); neither is a test, and both would
+	# be picked up by the glob without this guard.
+	case $t in */run.sh|*/run-c.sh) continue ;; esac
 	exp=${t%.sh}.out
 	out=$T/$(basename "$t").got
 	sed "s#\$T#$T#g" "$exp" > "$T/expected"

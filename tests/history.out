@@ -2,29 +2,49 @@ one
 two
 two
 hidden
-    1	echo one
-    2	echo two
-    3	history
-    1	echo one
-    2	echo two
-echo TWO
+1	echo one
+2	echo two
+3	echo two
+4	 echo hidden
+3	echo two
+4	 echo hidden
 TWO
 	echo one
 	echo two
-echo ONE
 ONE
 --- file:
 echo one
 echo two
+echo two
+ echo hidden
 history
 fc -l -3 -2
+fc -s two=TWO echo
 echo TWO
 fc -ln 1 2
+FCEDIT="sh ./ed.sh" fc 1
 echo ONE
 -rw-------
-    7	echo ONE
-    8	history 2
+2	echo two
+3	echo two
+4	 echo hidden
+5	history
+6	fc -l -3 -2
+7	fc -s two=TWO echo
+8	echo TWO
+9	fc -ln 1 2
+10	FCEDIT="sh ./ed.sh" fc 1
+11	echo ONE
 --- trimmed:
+echo one
+echo two
+echo two
+ echo hidden
+history
+fc -l -3 -2
+fc -s two=TWO echo
+echo TWO
 fc -ln 1 2
+FCEDIT="sh ./ed.sh" fc 1
 echo ONE
 history 2
