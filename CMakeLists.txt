@@ -158,6 +158,11 @@ if(ZKSH_ZOS)
   #                     timeradd() family in <sys/time.h>
   #   _OPEN_SYS         z/OS UNIX interfaces: setgroups() in <grp.h>
   #   _POSIX_C_SOURCE   POSIX.1-2008: strsignal() in <string.h>
+  #   _OPEN_SYS_FILE_EXT  extended file data: struct stat's st_tag
+  #                     (ft_ccsid, ft_txtflag) and <fcntl.h>'s F_SETTAG,
+  #                     F_CONTROL_CVT -- zos_builtins.c's chtag -p
+  #
+  # AGENTS.txt 2a lists the macros with the interface each one hides.
   #
   # Deliberately NOT _UNIX03_SOURCE: it makes the headers emit the
   # __-prefixed LE entry points (__sysconf, __fopen_ascii), which a
@@ -167,7 +172,7 @@ if(ZKSH_ZOS)
   # docs/port.md records which interface needed which; AGENTS.txt 2a
   # keeps the list.
   target_compile_definitions(zksh PRIVATE
-    _ALL_SOURCE _XPLATFORM_SOURCE _OPEN_SYS
+    _ALL_SOURCE _XPLATFORM_SOURCE _OPEN_SYS _OPEN_SYS_FILE_EXT
     _POSIX_C_SOURCE=200809L)
 endif()
 

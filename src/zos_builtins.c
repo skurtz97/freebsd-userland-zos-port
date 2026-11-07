@@ -28,11 +28,14 @@
  * ASCII, concatenating an argument raw is the bug.
  *
  * VERIFY (none of this has run on z/OS yet): the <_Ccsid.h> header
- * name and __toCSName() signature, struct stat's st_tag members
- * (ft_ccsid, ft_txtflag), that tsocmd and /bin/chtag exist under
- * those names, and the _BPX_TERMPATH values zosclass looks for.
- * AGENTS.txt 2a: check the local CRTL and command-reference books
- * before changing any of them.
+ * name and __toCSName() signature, whether tsocmd and /bin/chtag
+ * exist under those names, and the _BPX_TERMPATH values zosclass
+ * looks for.  struct stat's st_tag members (ft_ccsid, ft_txtflag)
+ * are NOT in that list any more: they are gated on _OPEN_SYS_FILE_EXT,
+ * which CMakeLists.txt defines (docs/port.md P28).  AGENTS.txt 2a:
+ * check the local CRTL and command-reference books before changing any
+ * of them.  __toCSName() is declared in <_Ccsid.h>; the CRTL reference
+ * entry for it exists, but the header was never included here.
  */
 
 #include <errno.h>
