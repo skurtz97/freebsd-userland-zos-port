@@ -70,14 +70,24 @@ docs/direction.md (constitution), docs/status.md (what works).
 ## Next actions
 1. ~~Set a git remote and push~~ done 2026-11-05.
 2. ~~First z/OS build~~ **done 2026-11-06**: builds, links, runs,
-   `ctest` 4/4 on the z/OS host. Fixes P23-P27 in docs/port.md.
-3. Verify the runtime claims that are still documentation: job
-   control, co-processes, line editing through a pty, and whether
+   `ctest` on the z/OS host. Fixes P23-P27 in docs/port.md.
+3. ~~Line editing and job control through a pty~~ **done 2026-11-06**,
+   both work (docs/status.md). Still open: co-processes, and whether
    `zos_spawn_child()` is really the path taken (P1-P5).
-4. `${v/pat/rep}` + a test that fails today.
-5. Port zash's tso/chtag/redirection layer into zos_builtins.c --
-   now with a measured reason: a redirect that mixes builtin output
-   (IBM-1047) and external output (ASCII) mixes encodings today.
+4. ~~`${v/pat/rep}`~~ **done 2026-11-06**: all four forms, ksh glob,
+   D2 decided; `tests/param.sh` is the proof (docs/port.md L1-L4).
+5. ~~`tso`/`chtag`/`extattr`~~ **done off z/OS** 2026-11-06, plus
+   `alloc`/`free`/`zosclass` (src/zos_builtins.c). The __MVS__ bodies
+   have never been compiled: first z/OS build is next.
+6. `_TAG_REDIR_*` and MVS data set redirection -- src/zos/sys_zos.c.ref
+   is the donor. This is the measured mixed-encoding gap.
+
+## Testing lesson (2026-11-06)
+The suite was red on the day it was committed: `history.out` had been
+copied from zash (an ash shell) and described no ksh at all. Verify an
+expectation against the base shell before blessing it -- and never
+reformat a whole file to fix one function (clang-format -i on eval.c
+was safe only because that file already conformed).
 
 ## z/OS host, as measured 2026-11-06
 - ssh alias `cbt` (port 2022, user SKURTZ), OS/390 CBT 29.00,
