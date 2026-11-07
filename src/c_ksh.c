@@ -1376,6 +1376,15 @@ const struct builtin kshbuiltins[] = {
     {"whence", c_whence},
     {"+bg", c_fgbg},
     {"+fg", c_fgbg},
+    /* The z/OS dialect (docs/zos-changes.md).  Not POSIX builtins: a
+     * path search must still be able to reach a utility of the same
+     * name, so they carry no * or + flag. */
+    {"tso", b_tso},
+    {"alloc", b_alloc},
+    {"free", b_free},
+    {"zosclass", b_zosclass},
+    {"chtag", b_chtag},
+    {"extattr", b_extattr},
 #ifdef EMACS
     {"bind", c_bind},
 #endif

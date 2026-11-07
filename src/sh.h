@@ -416,6 +416,15 @@ int c_exec(char **);
 int c_builtin(char **);
 /* c_test.c */
 int c_test(char **);
+/* zos_builtins.c -- the z/OS dialect builtins.  Present on every host:
+ * off z/OS each one reports "only available on z/OS" and returns 2,
+ * so a script can test for the name itself (docs/zos-changes.md). */
+int b_tso(char **);
+int b_alloc(char **);
+int b_free(char **);
+int b_zosclass(char **);
+int b_chtag(char **);
+int b_extattr(char **);
 /* edit.c: most prototypes in edit.h */
 void x_init(void);
 int x_read(char *, size_t);
