@@ -19,12 +19,24 @@ this one has to stay *knowable*.
 
 | Measure | Budget | At import | Headroom |
 | ------- | ------ | --------- | -------- |
-| C and headers, all files | **31,000 lines** | 28,036 | ~2,964 |
-| Files (`.c`/`.h`) | **65** | 55 | 10 |
-| Lines in `zos_spawn.c` + `zos_builtins.c` + `sys_zos.c` | **1,500** | 231 | 1,269 |
-| Builtin names | **70** | 55 | 15 |
+| C and headers, all files | **31,000 lines** | 27,842 (2026-11-06) | 3,158 |
+| Files (`.c`/`.h`) | **65** | 57 | 8 |
+| Lines in `zos_spawn.c` + `zos_builtins.c` + `sys_zos.c` | **1,500** | 548 (`zos_spawn.c` 236 + `zos_builtins.c` 312; `sys_zos.c` not written) | 952 |
+| Builtin names | **70** | 50 (2026-11-06; 44 before the six z/OS builtins) | 20 |
 | Lines in a single new function | **150** | — | — |
-| Editor code (`emacs.c` + `vi.c` + `edit.c`) | **no growth** | 5,715 | 0 |
+| Editor code (`emacs.c` + `vi.c` + `edit.c`) | **no growth** | 5,319 | 0 |
+
+The "at import" figures in this table were first written from memory
+and two were wrong, which is exactly what rule 3 forbids. Re-measured
+2026-11-06 with `wc -l` over `src/*.c src/*.h` and a count of the
+`{` entries in `kshbuiltins[]` and `shbuiltins[]`:
+
+- editor code is **5,319** lines (`emacs.c` 1,991, `vi.c` 2,207,
+  `edit.c` 1,121), not 5,715. It has not changed: no editing feature
+  was added, which is the budget's actual requirement.
+- builtins were **44**, not 55; the six z/OS ones make 50.
+- the tree is **27,842** lines in 57 files, under the 31,000 ceiling by
+  3,158.
 
 The 2,964-line headroom is the whole language and z/OS budget. The
 four z/OS builtins (`tso`, `alloc`, `free`, `zosclass`) and the
@@ -48,7 +60,7 @@ are feature-complete. New editing features belong in libedit's
 
 | Measure | Budget | At import |
 | ------- | ------ | --------- |
-| stripped, Linux x86-64 | **600 KB** | 269 KB |
+| stripped, Linux x86-64 | **600 KB** | 295,232 bytes (288 KB; 2026-11-06, Release) |
 | stripped, z/OS XPLINK64 | **1.0 MB** | unmeasured |
 
 The stripped binary is already well under budget because oksh links
@@ -59,7 +71,7 @@ statically (as zash does), the number roughly triples.
 
 | Measure | Budget | At import |
 | ------- | ------ | --------- |
-| `zksh -c ':'`, best of 30 | 5 ms | 0.43 ms |
+| `zksh -c ':'`, best of 30 | 5 ms | 0.54 ms (2026-11-06, Release) |
 | Peak RSS, empty profile | 3 MB | 2.33 MB |
 | Interactive start to prompt | 10 ms | unmeasured |
 

@@ -2,8 +2,9 @@ cmake_minimum_required(VERSION 3.20)
 project(zksh VERSION 0.1.0 LANGUAGES C)
 
 # zksh: a z/OS Korn shell. oksh 7.9 (pdksh lineage) as the engine, with a
-# z/OS layer in src/zos/. See docs/direction.md for the rules and
-# docs/merge.md for what came from where.
+# z/OS layer in src/zos_builtins.c and src/zos_spawn.c.  See
+# docs/direction.md for the rules and docs/merge.md for what came from
+# where.
 #
 # Sources in src/ keep their upstream oksh names, so a rebase against
 # vendor/oksh (ibara/oksh oksh-7.9) stays a mechanical diff.
@@ -88,8 +89,10 @@ if(NOT ZKSH_TEST_SHELL)
   set(ZKSH_TEST_SHELL sh)
 endif()
 
-# Every .c in src/ is part of the shell, except the z/OS-only files that
-# live in src/zos/ and are added conditionally below.
+# Every .c in src/ is part of the shell.  src/zos_builtins.c is globbed
+# with the rest (it compiles everywhere: off z/OS its builtins report
+# "only available on z/OS"); src/zos_spawn.c is added conditionally
+# below because it is all __MVS__ and empty elsewhere.
 file(GLOB ZKSH_SOURCES CONFIGURE_DEPENDS ${ZKSH_SRC_DIR}/*.c)
 list(SORT ZKSH_SOURCES)
 
@@ -136,9 +139,10 @@ else()
 endif()
 
 # ---- z/OS layer ------------------------------------------------------
-# src/zos/ holds zash code still being merged (docs/merge.md, phase 1).
-# It is NOT globbed into the build: src/zos_builtins.c is a donor that
-# has not been adapted to oksh structures yet.
+# src/zos/sys_zos.c.ref is the zash donor for tagging and MVS data set
+# redirection; it is a .ref, not a .c, precisely so the glob above never
+# compiles it.  It is not buildable against oksh yet (see
+# docs/zos-changes.md).
 
 
 if(ZKSH_ZOS)
@@ -185,12 +189,21 @@ install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/vendor/oksh/ksh.1
 
 # ---- Checks and formatting -------------------------------------------
 
+# Format only the files this project writes.  Upstream oksh is not
+# clang-formatted (2,992 violations in src/ at the 2026-11-06 pin), and
+# reformatting it would make every future rebase a diff of whitespace.
+# A zksh-written file that is not formatted is a real finding; an
+# upstream one is not, so it is not checked here.
+set(ZKSH_FORMAT_SOURCES
+  ${ZKSH_SRC_DIR}/zos_builtins.c
+  ${ZKSH_SRC_DIR}/zos_spawn.c
+  ${ZKSH_SRC_DIR}/zos_spawn.h)
+
 find_program(CLANG_FORMAT_EXE clang-format)
 if(CLANG_FORMAT_EXE)
   add_custom_target(format
-    COMMAND ${CLANG_FORMAT_EXE} --dry-run --Werror
-      ${ZKSH_SOURCES} ${ZKSH_SRC_DIR}/zos/*.c
-    COMMENT "clang-format check" VERBATIM)
+    COMMAND ${CLANG_FORMAT_EXE} --dry-run --Werror ${ZKSH_FORMAT_SOURCES}
+    COMMENT "clang-format check (zksh-written files only)" VERBATIM)
 endif()
 
 find_program(CLANG_TIDY_EXE clang-tidy)

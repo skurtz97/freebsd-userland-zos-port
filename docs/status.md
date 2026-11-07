@@ -24,8 +24,22 @@ item below run through `./zksh -c`:
 ## Present but not exercised here
 
 - Co-processes (`|&`, `read -p`, `print -p`): in the source, untested.
-- emacs/vi line editing: compiled in, not driven through a pty here.
 - `select`: parses, not driven interactively.
+
+## Verified on Linux, 2026-11-06
+
+The three "unverified" claims of 2026-11-05 were settled by driving the
+shell through a real pty (`pty.fork()`, python), not by reading code:
+
+| Claim | Result |
+| ----- | ------ |
+| emacs/vi line editing | **works.** `^P` recalled the previous line without echoing it and re-ran it. The mode chosen was *vi*, because this machine exports `VISUAL=nvim` -- oksh's `V_VISUAL` handling is correct, and a user with no `VISUAL`/`EDITOR` gets emacs (`change_flag(FEMACS, ...)` in `main.c`). The earlier "the editor does not engage" reading was a test artifact: with `FMONITOR` off there is no `tty_state`, so raw mode cannot be entered. |
+| job control | **works.** `sleep 30 &` printed `[1] <pid>`, `jobs` reported `[1] + Running`, `kill %1` stopped it. |
+| `select` | parses; not driven interactively. |
+
+`${v/pat/rep}` and its three siblings were added the same day; see
+[docs/language.md](language.md) Level 2 for the rules and
+`tests/param.sh` for the proof.
 
 ## Verified on z/OS (2026-11-06)
 
@@ -60,31 +74,35 @@ Two facts that are not optional reading before writing a test here:
   (`doc/ZOS-NOTES.md` P1-P5 remain claims.)
 - Job control (`set -m`, `&`, `wait`, notifications), co-processes.
 - Line editing: linked against ncurses, never driven through a pty.
-- `tso`, `alloc`, `free`, `zosclass` (not written yet), `_TAG_REDIR_*`,
-  MVS data set redirection.
+- `tso`, `alloc`, `free`, `zosclass`, `chtag`, `extattr`: written
+  (`src/zos_builtins.c`), built on Linux where they answer "only
+  available on z/OS" with status 2. Their `__MVS__` branch has **never
+  been compiled**, let alone run.
+- `_TAG_REDIR_*` and MVS data set redirection (still to port).
 
 ## Gaps against the direction
 
 | Gap | Consequence | Next |
 | --- | ----------- | ---- |
-| `${v/pat/rep}` missing | bash-era scripts fail with "bad substitution" | first language task; pattern syntax undecided (D2) |
-| `tso`/`alloc`/`free`/`zosclass` absent | z/OS convenience missing | port zash's `zos_builtins.c` shape, add `alloc`/`free` |
+| `${v/pat/rep}` | **done** 2026-11-06: ksh-glob patterns (D2 decided), `tests/param.sh` | draft the `${v^^}`/`${v,,}` decision next (refused for now) |
+| `tso`/`alloc`/`free`/`zosclass`/`chtag`/`extattr` | builtins exist and are tested off z/OS; the z/OS bodies have never compiled | first z/OS build of `src/zos_builtins.c` |
 | No `_TAG_REDIR_*` | redirected files untagged | port from zash `sys_zos.c` |
 | No MVS data set redirection | `> //'HLQ.DS'` unsupported | port from zash |
 | In-band `QUOTE` bytes in words | EBCDIC risk | audit; consider zash's origin-mark array |
-| No test runner beyond oksh's | no regression gate | decide harness |
+| no `ctest` gate over the script suite | regressions were invisible to CI | **done** 2026-11-06: CTest case `regression` runs `tests/run.sh` over all seven scripts |
 
 ## Next milestone
 
-**Reached 2026-11-06**: the z/OS build produces a shell that runs
-`./build-zos/zksh -c 'print hi'`, and every fix is in
-[port.md](port.md). The next milestone is `${v/pat/rep}` with a test
-that fails today.
+**Reached 2026-11-06**: `${v/pat/rep}` works, in all four documented
+forms, with `tests/param.sh` as the proof -- and the script suite is now
+gated by `ctest`. Next: compile `src/zos_builtins.c` on z/OS and correct
+whatever the compiler says about `<_Ccsid.h>`, `st_tag` and `tsocmd`.
 
 ## Open items
 
 - **D1 install name** — `zksh` only, or also `sh`?
-- **D2** pattern syntax for `${v/pat/rep}`.
+- **D2** pattern syntax for `${v/pat/rep}` -- **decided 2026-11-06: ksh
+  glob** (see docs/language.md).
 - **D3** `alloc`/`free` scope.
 - **D4** line-mode editing.
 - **D5** rebase on oksh upstream, or fork permanently at 7.9.

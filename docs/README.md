@@ -22,9 +22,9 @@ marked **planned**.
 ```mermaid
 flowchart TB
     OKSH["oksh 7.9 (src/)<br/>pdksh / ksh88<br/>parser, eval, jobs, editor"]
-    SPAWN["src/zos/zos_spawn.c<br/>spawnp first, fork for shell code"]
-    ZB["src/zos/zos_builtins.c<br/>tso chtag extattr (phase 1)"]
-    TAG["src/zos/sys_zos.c<br/>tagging, //DSN (phase 1)"]
+    SPAWN["src/zos_spawn.c<br/>spawnp first, fork for shell code"]
+    ZB["src/zos_builtins.c<br/>tso alloc free zosclass chtag extattr"]
+    TAG["src/zos/sys_zos.c.ref<br/>tagging, //DSN (not built yet)"]
     INT["history, completion, prompt<br/>libedit (phase 2)"]
     OKSH --> ZKSH["zksh"]
     SPAWN --> ZKSH

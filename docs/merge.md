@@ -25,7 +25,7 @@ everything interactive.
 | Part | zash file | Why it wins over oksh's own |
 | ---- | --------- | --------------------------- |
 | `_TAG_REDIR_OUT/ERR/IN`, MVS data set redirection, IBM-1047 pipe tagging, untagged-input sniffing | `sys_zos.c` (394 lines) | oksh has none; this is measured behaviour, with `tools/cvtprobe.c` to re-measure |
-| `tso`, `chtag -p` (native via `st_tag`), `extattr` | `zos_builtins.c` (125 lines) | oksh has none |
+| `tso`, `chtag -p` (native via `st_tag`), `extattr`, plus `alloc`, `free`, `zosclass` written for zksh | `zos_builtins.c` (125 lines donor) | oksh has none. Adapted 2026-11-06 into `src/zos_builtins.c` (312 lines) against oksh's own structures: `command()` for the deferral, `bi_errorf()`'s existing name prefix, one argument-quoting helper. The donor's `struct fdplan`/`sys_spawn` belong to zash and were not carried over. |
 | bash-compatible `PS1`/`PS2` escapes (`\u \h \w \$ \e`, `\[ \]`) | `zprompt.c` (206 lines) | oksh's prompt has no escapes at all |
 | Quote-aware completion: commands, builtins, functions, `$var`, files; PATH mtime cache | `complete.c` (494 lines) | oksh completes nothing |
 | `HISTFILE`, `HISTSIZE`/`HISTFILESIZE`/`HISTCONTROL`, crash-safe append, SIGHUP save | `zhistory.c` (574 lines) | oksh has `fc` and a history list, not this |
@@ -61,8 +61,10 @@ prove wrong under EBCDIC (port item C1).
 ## Rebase rule
 
 Upstream oksh file names never change, and upstream files stay in
-`src/`. Our code goes in `src/zos/`, `include/zos/`, `tests/`,
-`tools/`, `cmake/`. A rebase against a new oksh tag is therefore the
+`src/`. Our code goes in `src/` under zksh names (`zos_builtins.c`,
+`zos_spawn.c`), in `tests/`, `tools/`, `cmake/`, and the not-yet-built
+donors stay in `src/zos/` as `.ref` files so the source glob never
+compiles them. A rebase against a new oksh tag is therefore the
 same `git mv` in reverse plus the ledger in `docs/port.md`.
 
 ## Disasters this file remembers
