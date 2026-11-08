@@ -28,7 +28,7 @@ set(CMAKE_REQUIRED_FLAGS "")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   list(APPEND CMAKE_REQUIRED_DEFINITIONS -D_GNU_SOURCE)
 endif()
-if(ZKSH_ZOS)
+if(FSH_ZOS)
   # Must match the target's definitions, or a probe reports a function
   # missing while the build can see it.
   list(APPEND CMAKE_REQUIRED_DEFINITIONS
@@ -44,22 +44,22 @@ list(APPEND CMAKE_REQUIRED_FLAGS -std=gnu99)
 # The check must not rely on a bare __dead compiling, which is always
 # false.
 
-set(ZKSH_HAVE_SYSTEM_DEAD 0)
+set(FSH_HAVE_SYSTEM_DEAD 0)
 check_c_source_compiles("
   #include <sys/cdefs.h>
-  __dead void zksh_probe_dead(void);
-  int main(void) { return 0; }" ZKSH_SYSTEM_DEAD_OK)
-if(ZKSH_SYSTEM_DEAD_OK)
-  set(ZKSH_HAVE_SYSTEM_DEAD 1)
+  __dead void fsh_probe_dead(void);
+  int main(void) { return 0; }" FSH_SYSTEM_DEAD_OK)
+if(FSH_SYSTEM_DEAD_OK)
+  set(FSH_HAVE_SYSTEM_DEAD 1)
 endif()
 # Fallback: some systems define it in stdlib.h (BSD).
-if(NOT ZKSH_HAVE_SYSTEM_DEAD)
+if(NOT FSH_HAVE_SYSTEM_DEAD)
   check_c_source_compiles("
     #include <stdlib.h>
-    __dead void zksh_probe_dead(void);
-    int main(void) { return 0; }" ZKSH_STDLIB_DEAD_OK)
-  if(ZKSH_STDLIB_DEAD_OK)
-    set(ZKSH_HAVE_SYSTEM_DEAD 1)
+    __dead void fsh_probe_dead(void);
+    int main(void) { return 0; }" FSH_STDLIB_DEAD_OK)
+  if(FSH_STDLIB_DEAD_OK)
+    set(FSH_HAVE_SYSTEM_DEAD 1)
   endif()
 endif()
 
@@ -84,33 +84,33 @@ set(HAVE_MAXLOGNAME 0)
 check_c_source_compiles("
   #include <limits.h>
   #include <sys/param.h>
-  int zksh_pw = MAXLOGNAME;
-  int main(void) { return zksh_pw == 0; }" ZKSH_MAXLOGNAME_OK)
-if(NOT ZKSH_MAXLOGNAME_OK)
+  int fsh_pw = MAXLOGNAME;
+  int main(void) { return fsh_pw == 0; }" FSH_MAXLOGNAME_OK)
+if(NOT FSH_MAXLOGNAME_OK)
   # BSD also has <sys/syslimits.h>; try it in case param.h is absent.
   check_c_source_compiles("
     #include <limits.h>
     #include <sys/syslimits.h>
-    int zksh_pw = MAXLOGNAME;
-    int main(void) { return zksh_pw == 0; }" ZKSH_SYSLIMITS_OK)
-  if(ZKSH_SYSLIMITS_OK)
-    set(ZKSH_MAXLOGNAME_OK 1)
+    int fsh_pw = MAXLOGNAME;
+    int main(void) { return fsh_pw == 0; }" FSH_SYSLIMITS_OK)
+  if(FSH_SYSLIMITS_OK)
+    set(FSH_MAXLOGNAME_OK 1)
   endif()
 endif()
-if(ZKSH_MAXLOGNAME_OK)
+if(FSH_MAXLOGNAME_OK)
   set(HAVE_MAXLOGNAME 1)
 endif()
 
 # ---- Functions oksh uses if present --------------------------------
 
-set(ZKSH_FUNCS asprintf getauxval reallocarray setresgid setresuid
+set(FSH_FUNCS asprintf getauxval reallocarray setresgid setresuid
     strlcat strlcpy strtonum)
 # confstr is left out on z/OS. It compiles and links, but its _CS_PATH
 # support drags in __sysconf, which the static binder cannot resolve
 # (IEW2456E). main.c keeps _PATH_DEFPATH as the default and guards the
 # confstr override with HAVE_CONFSTR, so "absent" is a correct answer.
-if(NOT ZKSH_ZOS)
-  list(APPEND ZKSH_FUNCS confstr)
+if(NOT FSH_ZOS)
+  list(APPEND FSH_FUNCS confstr)
 endif()
 
 # The probes must link the same libraries as the target. On z/OS the
@@ -119,9 +119,9 @@ endif()
 # binder then reports the symbol defined twice (IEW2480W). Same rule as
 # the feature-test macros: what the check sees must be what the build
 # gets.
-set(_zksh_saved_required_libraries "${CMAKE_REQUIRED_LIBRARIES}")
-if(ZKSH_ZOS AND ZKSH_CURSES_LINK_ITEMS)
-  list(APPEND CMAKE_REQUIRED_LIBRARIES ${ZKSH_CURSES_LINK_ITEMS})
+set(_fsh_saved_required_libraries "${CMAKE_REQUIRED_LIBRARIES}")
+if(FSH_ZOS AND FSH_CURSES_LINK_ITEMS)
+  list(APPEND CMAKE_REQUIRED_LIBRARIES ${FSH_CURSES_LINK_ITEMS})
 endif()
 
 # Each result variable is UNSET before its check, never set. CMake's
@@ -135,7 +135,7 @@ endif()
 #
 # The stale-cache guard is the unset(): it clears both the normal
 # variable and the INTERNAL cache entry the probe writes.
-foreach(fn ${ZKSH_FUNCS})
+foreach(fn ${FSH_FUNCS})
   string(TOUPPER ${fn} FN_UC)
   unset(HAVE_${FN_UC})
   unset(HAVE_${FN_UC} CACHE)
@@ -145,7 +145,7 @@ foreach(fn ${ZKSH_FUNCS})
   endif()
 endforeach()
 
-set(CMAKE_REQUIRED_LIBRARIES "${_zksh_saved_required_libraries}")
+set(CMAKE_REQUIRED_LIBRARIES "${_fsh_saved_required_libraries}")
 
 # "The symbol links" and "a header declares it" are two different
 # questions, and z/OS answers them differently: the shell links zoslib
@@ -159,19 +159,19 @@ set(CMAKE_REQUIRED_LIBRARIES "${_zksh_saved_required_libraries}")
 # declaration become visible after the usual headers? The expression
 # form is deliberate -- it fails to compile when the identifier is
 # undeclared and needs no knowledge of the prototype.
-set(_zksh_decl_headers "#include <stdio.h>
+set(_fsh_decl_headers "#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/types.h>")
-foreach(fn ${ZKSH_FUNCS})
+foreach(fn ${FSH_FUNCS})
   string(TOUPPER ${fn} FN_UC)
   if(HAVE_${FN_UC})
     unset(HAVE_${FN_UC}_DECL)
     unset(HAVE_${FN_UC}_DECL CACHE)
-    check_c_source_compiles("${_zksh_decl_headers}
-      int main(void) { (void)${fn}; return 0; }" ZKSH_${FN_UC}_DECL_OK)
-    if(ZKSH_${FN_UC}_DECL_OK)
+    check_c_source_compiles("${_fsh_decl_headers}
+      int main(void) { (void)${fn}; return 0; }" FSH_${FN_UC}_DECL_OK)
+    if(FSH_${FN_UC}_DECL_OK)
       set(HAVE_${FN_UC}_DECL 1)
     else()
       set(HAVE_${FN_UC}_DECL 0)
@@ -184,8 +184,8 @@ endforeach()
 set(HAVE_FLOCK 0)
 check_c_source_compiles("
   #include <sys/file.h>
-  int main(void) { return flock(0, LOCK_EX | LOCK_UN); }" ZKSH_FLOCK_OK)
-if(ZKSH_FLOCK_OK)
+  int main(void) { return flock(0, LOCK_EX | LOCK_UN); }" FSH_FLOCK_OK)
+if(FSH_FLOCK_OK)
   set(HAVE_FLOCK 1)
 endif()
 
@@ -197,8 +197,8 @@ endif()
 set(HAVE_STRSIGNAL 0)
 check_c_source_compiles("
   #include <string.h>
-  int main(void) { return strsignal(2) == 0; }" ZKSH_STRSIGNAL_OK)
-if(ZKSH_STRSIGNAL_OK)
+  int main(void) { return strsignal(2) == 0; }" FSH_STRSIGNAL_OK)
+if(FSH_STRSIGNAL_OK)
   set(HAVE_STRSIGNAL 1)
 endif()
 
@@ -207,8 +207,8 @@ endif()
 set(HAVE_WCOREDUMP 0)
 check_c_source_compiles("
   #include <sys/wait.h>
-  int main(void) { return WCOREDUMP(0); }" ZKSH_WCOREDUMP_OK)
-if(ZKSH_WCOREDUMP_OK)
+  int main(void) { return WCOREDUMP(0); }" FSH_WCOREDUMP_OK)
+if(FSH_WCOREDUMP_OK)
   set(HAVE_WCOREDUMP 1)
 endif()
 
@@ -220,8 +220,8 @@ endif()
 set(HAVE_SIG_T 0)
 check_c_source_compiles("
   #include <signal.h>
-  int main(void) { sig_t f = SIG_DFL; return f == 0; }" ZKSH_SIG_T_OK)
-if(ZKSH_SIG_T_OK)
+  int main(void) { sig_t f = SIG_DFL; return f == 0; }" FSH_SIG_T_OK)
+if(FSH_SIG_T_OK)
   set(HAVE_SIG_T 1)
 endif()
 
@@ -233,8 +233,8 @@ check_c_source_compiles("
   int main(void) {
     struct stat sb;
     return (int) sb.st_mtim.tv_sec;
-  }" ZKSH_ST_MTIM_OK)
-if(ZKSH_ST_MTIM_OK)
+  }" FSH_ST_MTIM_OK)
+if(FSH_ST_MTIM_OK)
   set(HAVE_ST_MTIM 1)
 endif()
 
@@ -253,8 +253,8 @@ check_c_source_compiles("
     struct timeval a, b, c;
     timeradd(&a, &b, &c);
     return c.tv_sec != 0;
-  }" ZKSH_TIMERADD_OK)
-if(ZKSH_TIMERADD_OK)
+  }" FSH_TIMERADD_OK)
+if(FSH_TIMERADD_OK)
   set(HAVE_TIMERADD 1)
 endif()
 check_c_source_compiles("
@@ -263,8 +263,8 @@ check_c_source_compiles("
     struct timeval a, b, c;
     timersub(&a, &b, &c);
     return c.tv_sec != 0;
-  }" ZKSH_TIMERSUB_OK)
-if(ZKSH_TIMERSUB_OK)
+  }" FSH_TIMERSUB_OK)
+if(FSH_TIMERSUB_OK)
   set(HAVE_TIMERSUB 1)
 endif()
 check_c_source_compiles("
@@ -273,14 +273,14 @@ check_c_source_compiles("
     struct timeval c;
     timerclear(&c);
     return c.tv_sec != 0;
-  }" ZKSH_TIMERCLEAR_OK)
-if(ZKSH_TIMERCLEAR_OK)
+  }" FSH_TIMERCLEAR_OK)
+if(FSH_TIMERCLEAR_OK)
   set(HAVE_TIMERCLEAR 1)
 endif()
 
 # ---- Curses ----------------------------------------------------------
 
-if(ZKSH_EDITOR)
+if(FSH_EDITOR)
   set(HAVE_CURSES 1)
 endif()
 

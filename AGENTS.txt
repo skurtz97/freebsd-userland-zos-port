@@ -72,7 +72,7 @@ different set. A function "missing" on z/OS is usually a missing macro.
   resolve those in a statically linked program: IEW2456E, exit 12.
   _ALL_SOURCE already gives setenv() under its non-POSIX name.
 
-The build passes all five (CMakeLists.txt, ZKSH_ZOS) and the probes
+The build passes all five (CMakeLists.txt, FSH_ZOS) and the probes
 pass the same set (cmake/checks.cmake). If you add a probe, add the
 macros to both or the probe lies. Confirm against the CRTL reference in
 ~/docs/mainframe/txt/zos-c-runtime-library.txt, which states the exact
@@ -135,7 +135,7 @@ behaviour), docs/language.md (anything a parser now accepts).
 
   - CMAKE_TOOLCHAIN_FILE is read at project() time, BEFORE
     CMakeLists.txt declares its options. A toolchain test of
-    if(ZKSH_EDITOR) is therefore always false. Ask
+    if(FSH_EDITOR) is therefore always false. Ask
     if(DEFINED ...) and default to the option's declared value.
   - check_function_exists() runs only if its result variable is
     UNDEFINED (`if(NOT DEFINED ...)`). Pre-setting HAVE_x to 0 to guard

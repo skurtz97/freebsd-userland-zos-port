@@ -27,7 +27,7 @@ ctest --test-dir build
 | `./configure --disable-curses` | no line editing |
 | `./configure --cc=clang` | explicit compiler |
 | `./configure --build-dir=build-x` | out of tree, as many as you like |
-| `./configure --zos` | z/OS toolchain file, `-DZKSH_ZOS=ON` |
+| `./configure --zos` | z/OS toolchain file, `-DFSH_ZOS=ON` |
 | `./configure --ninja` | Ninja generator |
 
 By hand:
@@ -51,11 +51,11 @@ now only in `cmake/checks.cmake` and `cmake/pconfig.h.in`.
 | -------------- | --- |
 | writes `pconfig.h` | `cmake/checks.cmake` + `cmake/pconfig.h.in` |
 | writes `Makefile` | `CMakeLists.txt` |
-| `-w` | `-Wall -Wextra`; `ZKSH_STRICT=ON` adds `-Werror` |
+| `-w` | `-Wall -Wextra`; `FSH_STRICT=ON` adds `-Werror` |
 | `-fuse-ld=lld` | not set; the toolchain default is used |
 | `-lcurses` probe | `find_package(Curses)`, wide ncurses on z/OS |
 | `-D_GNU_SOURCE` | set for Linux targets |
-| no z/OS branch | `cmake/toolchain-zos.cmake`, `ZKSH_ZOS` |
+| no z/OS branch | `cmake/toolchain-zos.cmake`, `FSH_ZOS` |
 
 ## Two rules the checks follow
 
@@ -70,7 +70,7 @@ now only in `cmake/checks.cmake` and `cmake/pconfig.h.in`.
 
 The `-w` removal immediately found real warnings in the base
 (`c_test.c`, `c_ulimit.c`, `emacs.c`, `c_sh.c`, `edit.c`). They are
-visible, not yet fixed; `ZKSH_STRICT` will not pass until they are.
+visible, not yet fixed; `FSH_STRICT` will not pass until they are.
 
 ## z/OS
 
@@ -92,12 +92,12 @@ matching their ASCII expectations, so a failing test means a real
 failure, not an encoding mismatch.
 
 `cmake/toolchain-zos.cmake` selects `ibm-clang64` (Open XL 2.1,
-clang based), names the system `ZKSH-ZOS` so a local
-`cmake/Platform/ZKSH-ZOS.cmake` answers instead of CMake printing
+clang based), names the system `FSH-ZOS` so a local
+`cmake/Platform/FSH-ZOS.cmake` answers instead of CMake printing
 "System is unknown", and searches the zopen tree for headers and
 libraries. It does **not** pass `-m64` (Open XL defaults to 64-bit
 XPLINK) and does **not** pass `-march`: a binary built for a higher
-level will not run on a lower one, so `-DZKSH_ZOS_ARCH=z16` is opt-in.
+level will not run on a lower one, so `-DFSH_ZOS_ARCH=z16` is opt-in.
 
 Curses is the awkward part. zopen installs only static archives, wide
 (`--enable-widec`) character, headers in `include/ncursesw`, so
@@ -116,7 +116,7 @@ Observed layout (2026-11-05):
 /usr/local/zopen/usr/local/zopen/ncurses/ncurses-<ver>.zos/{include/ncursesw,lib}
 ```
 
-Override with `-DZKSH_CURSES_PREFIX=<dir>` or the two
+Override with `-DFSH_CURSES_PREFIX=<dir>` or the two
 `-DCURSES_INCLUDE_PATH=` / `-DCURSES_LIBRARY=` variables. Configure
 prints which one won:
 

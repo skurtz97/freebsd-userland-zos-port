@@ -1,9 +1,9 @@
-# Platform/ZKSH-ZOS.cmake -- zksh's own CMake platform module.
+# Platform/FSH-ZOS.cmake -- fsh's own CMake platform module.
 #
 # CMake ships no Platform/zOS, and CMakeSystemSpecificInformation
 # prints "System is unknown to cmake" unless Platform/<name> exists.
 # Rather than name the system UNIX (accurate) and accept ~40 lines of
-# warning per configure, name it ZKSH-ZOS and supply this module.
+# warning per configure, name it FSH-ZOS and supply this module.
 #
 # It is a generic UNIX: Open XL defines __MVS__, which is what the
 # source tests. Nothing here sets a compiler triple: this is a native

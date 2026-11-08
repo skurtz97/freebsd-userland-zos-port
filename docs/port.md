@@ -39,7 +39,7 @@ oksh `configure` script was replaced by the CMake build
 
 | # | Item | Decision |
 | - | ---- | -------- |
-| B1 | ~~`configure`: detect `__MVS__`, set `-D_ALL_SOURCE`, add z/OS objects~~ | superseded: CMake, `cmake/toolchain-zos.cmake`. The macros are in `CMakeLists.txt` (ZKSH_ZOS) and `cmake/checks.cmake`, in both on purpose |
+| B1 | ~~`configure`: detect `__MVS__`, set `-D_ALL_SOURCE`, add z/OS objects~~ | superseded: CMake, `cmake/toolchain-zos.cmake`. The macros are in `CMakeLists.txt` (FSH_ZOS) and `cmake/checks.cmake`, in both on purpose |
 | B2 | `_BPX_JOBNAME` value is `OKSH` | **done** -- `ZKSH` |
 | B3 | `PROG`/`KSHELL` name in `configure` | **done** -- the target is `zksh` |
 | B4 | Link `-lcurses` vs z/OS terminfo/ncurses | **done** -- zopen's static `libncursesw.a` by path, found by the toolchain (P9, P24) |
@@ -61,7 +61,7 @@ oksh `configure` script was replaced by the CMake build
 | P6 | many | `<sys/param.h>` does not exist on z/OS | **done** — `check_include_file`, guarded include, `MAXLOGNAME` probed separately (`HAVE_MAXLOGNAME`) |
 | P7 | `confstr.c`, `exec.c`, `main.c`, `portable.h` | no `<paths.h>` on z/OS; `_PATH_BSHELL`/`_PATH_DEFPATH`/`_PATH_STDPATH` | **done** — `check_include_file(paths.h)`, guarded includes, existing `#ifndef` fallbacks now apply |
 | P8 | `edit.c` | `_POSIX_VDISABLE` undefined | **done** — `portable.h` defines it as 0, as POSIX directs |
-| P9 | `emacs.c`, `var.c` | zopen ncurses `term.h` includes `<ncursesw/ncurses_dll.h>`, so the parent of `include/ncursesw` must be on the include path | **done** — toolchain records `ZKSH_CURSES_EXTRA_INCLUDE` |
+| P9 | `emacs.c`, `var.c` | zopen ncurses `term.h` includes `<ncursesw/ncurses_dll.h>`, so the parent of `include/ncursesw` must be on the include path | **done** — toolchain records `FSH_CURSES_EXTRA_INCLUDE` |
 | P10 | `history.c`, `portable.h` | `flock()` needs `<sys/file.h>` and `_XPLATFORM_SOURCE` on z/OS; absent systems need a no-op | **done** — `HAVE_FLOCK` probed, `<sys/file.h>` included for `__MVS__`, `flock` falls back to 0 |
 | P11 | `jobs.c`, `portable.h` | no `WCOREDUMP` on z/OS (a BSD bit in the wait status) | **done** — `HAVE_WCOREDUMP` probed; falls back to 0, so the shell never claims a core dump |
 | P12 | `portable.h`, `CMakeLists.txt` | `timeradd`/`timersub` exist under `_XPLATFORM_SOURCE`, `timerclear` does not | **done** — each timer macro probed separately, `_XPLATFORM_SOURCE` added to build and checks |
@@ -129,8 +129,8 @@ C++ support that ncurses' C++ members reference; `celquopt.s.o` is for
 C++ exception qualifiers and is not needed here.
 
 The toolchain now locates zoslib next to the ncurses package, sets
-`ZKSH_CURSES_LINK_ITEMS`, and warns loudly rather than producing an
-archive that cannot bind. `-DZKSH_ZOSLIB_LIBDIR=<dir>` overrides.
+`FSH_CURSES_LINK_ITEMS`, and warns loudly rather than producing an
+archive that cannot bind. `-DFSH_ZOSLIB_LIBDIR=<dir>` overrides.
 
 ### Formatter hazard (found with P23)
 
@@ -157,8 +157,8 @@ declaration.
 
 | P25 | `trap.c` | `strcasecmp()`/`strncasecmp()` were undeclared | **done** -- added `<strings.h>`, which is where POSIX declares them. oksh never noticed: glibc's `<string.h>` declares them under `_GNU_SOURCE`, and zopen's shared include tree happened to declare them too. Narrowing the ncurses include path (P9) removed the accident and the z/OS build said so: `call to undeclared library function 'strcasecmp' ... ISO C99 and later do not support implicit function declarations` |
 
-| P26 | `portable.h`, `cmake/checks.cmake`, `cmake/pconfig.h.in` | `reallocarray()`, `setresuid()`, `setresgid()` were undeclared in `history.c` and `misc.c` once `HAVE_*` became true | **done** -- "the symbol links" and "a header declares it" are two questions, and z/OS answers them differently: the shell links zoslib (ncurses needs it), zoslib supplies these symbols, and no system header declares them. Every function in `ZKSH_FUNCS` that links now also gets `HAVE_x_DECL` from a compile-only probe (`(void)fn;`), and `portable.h` declares the prototype unless both macros are set. Found immediately after the probe fix in P25/P27 |
-| P27 | `cmake/checks.cmake` | `check_function_exists()` reported every function absent on every platform | **done** -- the loop pre-set `HAVE_x` to 0 "so a stale cached answer cannot survive", but the module runs only `if(NOT DEFINED ...)`, so the probes were skipped and a skip is indistinguishable from "not found". Fedora: `HAVE_STRLCAT` undef although glibc has it. Now `unset()` (normal and CACHE) before each check. On z/OS the probes also link `ZKSH_CURSES_LINK_ITEMS`, because the shell does |
+| P26 | `portable.h`, `cmake/checks.cmake`, `cmake/pconfig.h.in` | `reallocarray()`, `setresuid()`, `setresgid()` were undeclared in `history.c` and `misc.c` once `HAVE_*` became true | **done** -- "the symbol links" and "a header declares it" are two questions, and z/OS answers them differently: the shell links zoslib (ncurses needs it), zoslib supplies these symbols, and no system header declares them. Every function in `FSH_FUNCS` that links now also gets `HAVE_x_DECL` from a compile-only probe (`(void)fn;`), and `portable.h` declares the prototype unless both macros are set. Found immediately after the probe fix in P25/P27 |
+| P27 | `cmake/checks.cmake` | `check_function_exists()` reported every function absent on every platform | **done** -- the loop pre-set `HAVE_x` to 0 "so a stale cached answer cannot survive", but the module runs only `if(NOT DEFINED ...)`, so the probes were skipped and a skip is indistinguishable from "not found". Fedora: `HAVE_STRLCAT` undef although glibc has it. Now `unset()` (normal and CACHE) before each check. On z/OS the probes also link `FSH_CURSES_LINK_ITEMS`, because the shell does |
 
 ## Feature edits (2026-11-06)
 
