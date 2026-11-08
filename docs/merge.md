@@ -77,7 +77,7 @@ process-heavy ones. oksh, dash and ksh93 had no further information
 worth carrying as checkouts, so their submodules were removed.
 
 Only `vendor/freebsd-sh` remains. It is the submodule
-`skurtz97/freebsd-userland-zos-port`, the FreeBSD userland port for
+`skurtz97/freebsd-userland-zos-port-src`, the FreeBSD userland port for
 z/OS starting with `bin/sh`; its FreeBSD source pin is
 `release/15.1.0`, commit
 `96841ea08dcfa84b954a32dc5ae1a26c28966cf4`. The oksh source pin above

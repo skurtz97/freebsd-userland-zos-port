@@ -30,10 +30,10 @@ main repository heavier and its status noisier.
 
 | Directory | Repository | Pin | Licence |
 | --------- | ---------- | --- | ------- |
-| `freebsd-sh/` | <https://github.com/skurtz97/freebsd-userland-zos-port> | commit `aedf959`, tag `freebsd-15.1.0` | BSD-3-Clause / BSD-2-Clause, per file |
+| `freebsd-sh/` | <https://github.com/skurtz97/freebsd-userland-zos-port-src> | commit `2bc9d53`, tag `freebsd-15.1.0` | BSD-3-Clause / BSD-2-Clause, per file |
 
-`freebsd-sh/` is the dedicated **FreeBSD userland port for z/OS**
-repository, starting with `bin/sh`. It is not the whole FreeBSD source
+`freebsd-sh/` is the dedicated **FreeBSD userland port source for
+z/OS** repository, starting with `bin/sh`. It is not the whole FreeBSD source
 tree. It contains only the parts needed to build `bin/sh`: `bin/sh`,
 `bin/kill`, `bin/test`, and `usr.bin/printf`, plus the Linux benchmark
 adapter. Its upstream pin is FreeBSD `release/15.1.0`, commit
@@ -106,7 +106,7 @@ scheduler hiccup.
 ## Updating the pin
 
 The submodule checkout is the pin. Make the change in
-`skurtz97/freebsd-userland-zos-port` first, push it, then update the
+`skurtz97/freebsd-userland-zos-port-src` first, push it, then update the
 submodule checkout and record the new gitlink:
 
 ```sh

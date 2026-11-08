@@ -17,7 +17,7 @@ Companion repos, do not confuse them:
   ~/src/oksh   upstream oksh + the zos-spawn branch this tree came from
   ~/src/zash   the ash reference implementation, separate remote,
                NOT vendored here
-  ~/src/freebsd-userland-zos-port
+  ~/src/freebsd-userland-zos-port-src
                the FreeBSD userland port for z/OS; its bin/sh is the
                only vendored benchmark reference (vendor/freebsd-sh)
   ~/src/zrx    unrelated (REXX interpreter)
@@ -227,7 +227,7 @@ behaviour), docs/language.md (anything a parser now accepts).
 - zash: chars GNU/BSD independent, see its DESIGN.md; ideas only,
   nothing copied yet.
 - Vendored benchmark reference: `vendor/freebsd-sh` is the submodule
-  `skurtz97/freebsd-userland-zos-port`, whose FreeBSD bin/sh pin is
+  `skurtz97/freebsd-userland-zos-port-src`, whose FreeBSD bin/sh pin is
   freebsd/freebsd-src release/15.1.0,
   96841ea08dcfa84b954a32dc5ae1a26c28966cf4.
 - oksh, dash and ksh93 vendor checkouts were removed on 2026-11-07
