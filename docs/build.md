@@ -27,7 +27,8 @@ ctest --test-dir build
 | `./configure --disable-curses` | no line editing |
 | `./configure --cc=clang` | explicit compiler |
 | `./configure --build-dir=build-x` | out of tree, as many as you like |
-| `./configure --zos` | z/OS toolchain file, `-DFSH_ZOS=ON` |
+| `./configure --zos` | z/OS toolchain file, `-DFSH_ZOS=ON`, Open XL |
+| `./configure --zos --xlc` | z/OS with legacy XL C/C++ (`xlc`) |
 | `./configure --ninja` | Ninja generator |
 
 By hand:
@@ -92,7 +93,10 @@ matching their ASCII expectations, so a failing test means a real
 failure, not an encoding mismatch.
 
 `cmake/toolchain-zos.cmake` selects `ibm-clang64` (Open XL 2.1,
-clang based), names the system `FSH-ZOS` so a local
+clang based) by default. `FSH_ZOS_COMPILER=xlc` (or
+`./configure --zos --xlc`) selects the legacy XL compiler and adds
+`-q64 -qXPLINK -qlanglvl=extended`; that path is implemented but not
+yet run on z/OS. The toolchain names the system `FSH-ZOS` so a local
 `cmake/Platform/FSH-ZOS.cmake` answers instead of CMake printing
 "System is unknown", and searches the zopen tree for headers and
 libraries. It does **not** pass `-m64` (Open XL defaults to 64-bit

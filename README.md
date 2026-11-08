@@ -52,8 +52,9 @@ generated sources and no C tools to build first.
 make
 ```
 
-Requires IBM Open XL C/C++ 2.1 (`ibm-clang64`). **This has not been
-attempted yet.** `configure` currently has no z/OS detection: it
+Requires IBM Open XL C/C++ 2.1 (`ibm-clang64`), or legacy XL C/C++
+(`xlc`) with `./configure --zos --xlc`. **This has not been attempted
+yet.** `configure` currently has no z/OS detection: it
 compiles `zos_spawn.o` unconditionally (which is harmless on Linux,
 being empty, but is not the same as *configuring* for z/OS), and it
 does not add `-D_ALL_SOURCE`. Whether that flag is needed at all is
