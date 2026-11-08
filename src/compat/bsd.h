@@ -86,6 +86,10 @@ int unsetenv(const char *);
 void *reallocarray(void *, size_t, size_t);
 char *strsep(char **, const char *);
 char *strndup(const char *, size_t);
+char *strsignal(int);
+#ifndef WCOREDUMP
+#define WCOREDUMP(status) 0
+#endif
 #endif
 #endif
 /* C11 Annex K qsort_s is a FreeBSD libc feature (and Linux glibc has no

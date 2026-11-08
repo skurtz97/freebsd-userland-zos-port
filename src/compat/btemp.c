@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <signal.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -10,6 +11,8 @@
 #include <sys/types.h>
 #include <wchar.h>
 #include "bsd.h"
+
+extern char **environ;
 
 /* glibc has no issetugid(); a POSIX programme can compute the answer. */
 int
@@ -119,6 +122,68 @@ strndup(const char *s, size_t n)
 	memcpy(copy, s, len);
 	copy[len] = '\0';
 	return copy;
+}
+
+char *
+strsignal(int sig)
+{
+	static char buf[64];
+
+	if (sig >= 0 && sig < NSIG && sys_signame[sig] != NULL)
+		snprintf(buf, sizeof(buf), "%s", sys_signame[sig]);
+	else
+		snprintf(buf, sizeof(buf), "Signal %d", sig);
+	return buf;
+}
+
+void
+warnx(const char *fmt, ...)
+{
+	va_list ap;
+
+	fputs("fsh: ", stderr);
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	va_end(ap);
+	fputc('\n', stderr);
+}
+
+void
+warn(const char *fmt, ...)
+{
+	va_list ap;
+
+	fputs("fsh: ", stderr);
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	va_end(ap);
+	fprintf(stderr, ": %s\n", strerror(errno));
+}
+
+void
+errx(int status, const char *fmt, ...)
+{
+	va_list ap;
+
+	fputs("fsh: ", stderr);
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	va_end(ap);
+	fputc('\n', stderr);
+	exit(status);
+}
+
+void
+err(int status, const char *fmt, ...)
+{
+	va_list ap;
+
+	fputs("fsh: ", stderr);
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	va_end(ap);
+	fprintf(stderr, ": %s\n", strerror(errno));
+	exit(status);
 }
 #endif
 
