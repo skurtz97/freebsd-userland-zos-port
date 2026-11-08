@@ -6,16 +6,35 @@
 #
 #   ./configure                        Debug build in build/
 #   ./configure --prefix=/usr/local
-#   ./configure --enable-small         -DZKSH_SMALL=ON
+#   ./configure --enable-small         -DFSH_SMALL=ON
 #   ./configure --cc=ibm-clang64       -DCMAKE_C_COMPILER=ibm-clang64
-#   ./configure --zos                  cmake/toolchain-zos.cmake
+#   ./configure --zos                  cmake/toolchain-zos.cmake (Open XL)
+#   ./configure --zos --xlc            z/OS with legacy XL C/C++ (xlc)
 #   ./configure --build-dir=DIR
 #
 # After it finishes: cmake --build DIR -j8
+#
+# Run this with bash on z/OS: /bin/sh there cannot parse this file
+# ("FSUM7332 syntax error: got (" -- it has no $( )), and it is the same
+# reason docs/build.md says to run the test runner with bash. bash is
+# development tooling here, not a runtime dependency of zksh.
 
 set -e
 
-srcdir=$(cd "$(dirname "$0")" && pwd)
+# The script's own directory.  $(dirname ...) is deliberately avoided:
+# on z/OS a command substitution keeps a trailing newline (measured),
+# and dirname emits one, so the value arrives as "/path\n" and every
+# later use of it is a path with a newline in it.  ${0%/*} is a plain
+# parameter expansion with no substitution at all.
+cwd=$(pwd)
+case $0 in
+*/*) srcdir=$(cd "${0%/*}" && pwd) ;;
+*) srcdir=$cwd ;;
+esac
+case $srcdir in
+/*) ;;
+*) srcdir=$cwd/$srcdir ;;
+esac
 prefix=/usr/local
 build=build
 generator=""
@@ -28,17 +47,19 @@ for arg in "$@"; do
   --cc=*)        extra="$extra -DCMAKE_C_COMPILER=${arg#--cc=}" ;;
   --cflags=*)    extra="$extra -DCMAKE_C_FLAGS=${arg#--cflags=}" ;;
   --build-dir=*) build=${arg#--build-dir=} ;;
-  --enable-small|--small)   extra="$extra -DZKSH_SMALL=ON" ;;
-  --disable-small)          extra="$extra -DZKSH_SMALL=OFF" ;;
-  --enable-curses|--curses) extra="$extra -DZKSH_EDITOR=ON" ;;
-  --disable-curses)         extra="$extra -DZKSH_EDITOR=OFF" ;;
+  --enable-small|--small)   extra="$extra -DFSH_SMALL=ON" ;;
+  --disable-small)          extra="$extra -DFSH_SMALL=OFF" ;;
+  --enable-curses|--curses) extra="$extra -DFSH_EDITOR=ON" ;;
+  --disable-curses)         extra="$extra -DFSH_EDITOR=OFF" ;;
   --enable-static|--static) extra="$extra -DBUILD_SHARED_LIBS=OFF" ;;
-  --zos)         toolchain="-DCMAKE_TOOLCHAIN_FILE=$srcdir/cmake/toolchain-zos.cmake -DZKSH_ZOS=ON" ;;
+  --zos)         toolchain="-DCMAKE_TOOLCHAIN_FILE=$srcdir/cmake/toolchain-zos.cmake -DFSH_ZOS=ON" ;;
+  --xlc)         extra="$extra -DFSH_ZOS_COMPILER=xlc" ;;
+  --openxl)      extra="$extra -DFSH_ZOS_COMPILER=openxl" ;;
   --ninja)       generator="-G Ninja" ;;
   --release)     extra="$extra -DCMAKE_BUILD_TYPE=Release" ;;
   --debug)       extra="$extra -DCMAKE_BUILD_TYPE=Debug" ;;
   --help|-h)
-    sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
     exit 0 ;;
   *)
     echo "configure: unknown option: $arg (try --help)" >&2
