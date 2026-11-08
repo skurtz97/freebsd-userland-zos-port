@@ -63,7 +63,9 @@
 #define MEM_OUT -2		/* output to dynamically allocated memory */
 #define OUTPUT_ERR 01		/* error occurred on output */
 
+#ifndef __MVS__
 static int doformat_wr(void *, const char *, int);
+#endif
 
 struct output output = {NULL, NULL, NULL, OUTBUFSIZ, 1, 0};
 struct output errout = {NULL, NULL, NULL, 256, 2, 0};
@@ -310,6 +312,7 @@ fmtstr(char *outbuf, int length, const char *fmt, ...)
 	INTON;
 }
 
+#ifndef __MVS__
 static int
 doformat_wr(void *cookie, const char *buf, int len)
 {
@@ -320,22 +323,52 @@ doformat_wr(void *cookie, const char *buf, int len)
 
 	return (len);
 }
+#endif
 
 void
 doformat(struct output *dest, const char *f, va_list ap)
 {
+#ifdef __MVS__
+	va_list ap2;
+	char *buf = NULL;
+	size_t size = 128;
+	int n;
+
+	for (;;) {
+		char *nbuf = realloc(buf, size);
+		if (nbuf == NULL) {
+			free(buf);
+			return;
+		}
+		buf = nbuf;
+		va_copy(ap2, ap);
+		n = vsnprintf(buf, size, f, ap2);
+		va_end(ap2);
+		if (n >= 0 && (size_t)n < size)
+			break;
+		size *= 2;
+	}
+	if (n > 0)
+		outbin(buf, n, dest);
+	free(buf);
+#else
 	FILE *fp;
 
 	if ((fp = fwopen(dest, doformat_wr)) != NULL) {
 		vfprintf(fp, f, ap);
 		fclose(fp);
 	}
+#endif
 }
 
 FILE *
 out1fp(void)
 {
+#ifdef __MVS__
+	return NULL;
+#else
 	return fwopen(out1, doformat_wr);
+#endif
 }
 
 /*

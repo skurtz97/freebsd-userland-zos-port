@@ -15,6 +15,15 @@
 
 extern char **environ;
 
+#ifdef __MVS__
+#ifndef SIGRTMIN
+#define SIGRTMIN NSIG
+#endif
+#ifndef SIGRTMAX
+#define SIGRTMAX NSIG
+#endif
+#endif
+
 /* glibc has no issetugid(); a POSIX programme can compute the answer. */
 int
 fsh_issetugid(void)
@@ -307,6 +316,7 @@ str2sig(const char *str, int *pnum)
 	return -1;
 }
 
+#ifndef __MVS__
 struct fw {
 	void *cookie;
 	int (*writefn)(void *, const char *, int);
@@ -341,6 +351,17 @@ fwopen(void *cookie, int (*writefn)(void *, const char *, int))
 	io.close = fw_close;
 	return fopencookie(fw, "w", io);
 }
+#else
+/* z/OS has no fopencookie().  output.c formats through vsnprintf and
+ * bindcmd uses a temporary file, so nothing calls this stub. */
+FILE *
+fwopen(void *cookie, int (*writefn)(void *, const char *, int))
+{
+	(void)cookie;
+	(void)writefn;
+	return NULL;
+}
+#endif
 
 /* Single-threaded context-pass for qsort_s(), used by histedit.c. */
 void *fsh_qsort_thunk;

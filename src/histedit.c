@@ -543,13 +543,39 @@ bindcmd(int argc, char **argv)
 {
 	int ret;
 	FILE *old;
+#ifndef __MVS__
 	FILE *out;
+#else
+	FILE *tmp;
+#endif
 
 	if (el == NULL)
 		error("line editing is disabled");
 
 	INTOFF;
 
+#ifdef __MVS__
+	/* z/OS has no fopencookie(); collect el_parse output in a temp
+	 * file and copy it to out1 after el_parse returns. */
+	tmp = tmpfile();
+	if (tmp == NULL)
+		error("Out of space");
+
+	el_get(el, EL_GETFP, 1, &old);
+	el_set(el, EL_SETFP, 1, tmp);
+
+	ret = el_parse(el, argc, __DECONST(const char **, argv));
+
+	el_set(el, EL_SETFP, 1, old);
+
+	if (fseek(tmp, 0, SEEK_SET) == 0) {
+		char buf[512];
+		size_t n;
+		while ((n = fread(buf, 1, sizeof(buf), tmp)) > 0)
+			outbin(buf, n, out1);
+	}
+	fclose(tmp);
+#else
 	out = out1fp();
 	if (out == NULL)
 		error("Out of space");
@@ -562,6 +588,7 @@ bindcmd(int argc, char **argv)
 	el_set(el, EL_SETFP, 1, old);
 
 	fclose(out);
+#endif
 
 	if (argc > 1 && argv[1][0] == '-' &&
 	    memchr("ve", argv[1][1], 2) != NULL) {
