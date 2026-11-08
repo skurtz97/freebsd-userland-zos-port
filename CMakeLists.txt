@@ -184,16 +184,41 @@ endif()
 
 # ---- FreeBSD sh generators ------------------------------------------
 
-# mknodes reads nodetypes and nodes.c.pat as raw bytes.  The checkout is
-# UTF-8-tagged ASCII, but mknodes is an EBCDIC program: its '\n' is
-# 0x15, while the file holds 0x0a.  Convert the two inputs to EBCDIC in
-# the build tree on z/OS.  The other generators take no such input.
+# The generators are EBCDIC programs on z/OS; the shell generator
+# scripts use awk/sed/tr, which mix EBCDIC output with bash's ASCII
+# here-documents.  Two rules keep the generated C readable by Open XL,
+# which accepts UTF-8 source only:
+#
+#   mknodes/mksyntax  read/write EBCDIC, so convert their inputs and
+#                     outputs with iconv.
+#   mkbuiltins/mktokens run with the zopen GNU text tools (gawk, gsed,
+#                     gtr, ggrep, gwc), which emit UTF-8 bytes, then tag
+#                     the result UTF-8.
 if(FSH_ZOS)
   find_program(FSH_ICONV NAMES iconv)
-  if(NOT FSH_ICONV)
-    message(FATAL_ERROR
-      "z/OS build needs iconv to convert mknodes input to IBM-1047")
-  endif()
+  find_program(FSH_CHTAG NAMES chtag)
+  find_program(FSH_GAWK NAMES gawk)
+  find_program(FSH_GSED NAMES gsed)
+  find_program(FSH_GTR NAMES gtr)
+  find_program(FSH_GGREP NAMES ggrep)
+  find_program(FSH_GWC NAMES gwc)
+  foreach(_tool ICONV CHTAG GAWK GSED GTR GGREP GWC)
+    if(NOT FSH_${_tool})
+      message(FATAL_ERROR
+        "z/OS build needs ${_tool} (zopen coreutils/gawk)")
+    endif()
+  endforeach()
+
+  set(FSH_ZOS_GNU_BIN ${FSH_GEN_DIR}/gnubin)
+  file(MAKE_DIRECTORY ${FSH_ZOS_GNU_BIN})
+  file(CREATE_LINK ${FSH_GAWK} ${FSH_ZOS_GNU_BIN}/awk SYMBOLIC)
+  file(CREATE_LINK ${FSH_GSED} ${FSH_ZOS_GNU_BIN}/sed SYMBOLIC)
+  file(CREATE_LINK ${FSH_GTR} ${FSH_ZOS_GNU_BIN}/tr SYMBOLIC)
+  file(CREATE_LINK ${FSH_GGREP} ${FSH_ZOS_GNU_BIN}/grep SYMBOLIC)
+  file(CREATE_LINK ${FSH_GWC} ${FSH_ZOS_GNU_BIN}/wc SYMBOLIC)
+  set(FSH_GEN_ENV ${CMAKE_COMMAND} -E env
+    "PATH=${FSH_ZOS_GNU_BIN}:$ENV{PATH}")
+
   set(FSH_NODETYPES ${FSH_GEN_DIR}/nodetypes)
   set(FSH_NODES_PAT ${FSH_GEN_DIR}/nodes.c.pat)
   foreach(_pair "${FSH_SRC_DIR}/nodetypes;${FSH_NODETYPES}"
@@ -227,30 +252,46 @@ foreach(tool mknodes mksyntax)
     -include ${FSH_SRC_DIR}/compat/bsd.h)
 endforeach()
 
+if(FSH_ZOS)
+  set(FSH_ZOS_UTF8 ${CMAKE_COMMAND}
+    -DICONV=${FSH_ICONV} -DCHTAG=${FSH_CHTAG})
+  set(FSH_ZOS_TAG_UTF8 ${FSH_CHTAG} -tc UTF-8)
+else()
+  set(FSH_ZOS_UTF8 ${CMAKE_COMMAND})
+  set(FSH_ZOS_TAG_UTF8 ${CMAKE_COMMAND} -E echo_append)
+endif()
+
 add_custom_command(OUTPUT ${FSH_GEN_DIR}/nodes.c ${FSH_GEN_DIR}/nodes.h
   COMMAND ${CMAKE_COMMAND} -E make_directory ${FSH_GEN_DIR}
   COMMAND $<TARGET_FILE:mknodes> ${FSH_NODETYPES} ${FSH_NODES_PAT}
+  COMMAND ${FSH_ZOS_UTF8} "-DFILES=${FSH_GEN_DIR}/nodes.c;${FSH_GEN_DIR}/nodes.h"
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/zos-utf8-inplace.cmake
   DEPENDS mknodes ${FSH_NODETYPES} ${FSH_NODES_PAT}
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/zos-utf8-inplace.cmake
   WORKING_DIRECTORY ${FSH_GEN_DIR}
   VERBATIM)
 
 add_custom_command(OUTPUT ${FSH_GEN_DIR}/syntax.c ${FSH_GEN_DIR}/syntax.h
   COMMAND ${CMAKE_COMMAND} -E make_directory ${FSH_GEN_DIR}
   COMMAND $<TARGET_FILE:mksyntax>
-  DEPENDS mksyntax
+  COMMAND ${FSH_ZOS_UTF8} "-DFILES=${FSH_GEN_DIR}/syntax.c;${FSH_GEN_DIR}/syntax.h"
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/zos-utf8-inplace.cmake
+  DEPENDS mksyntax ${CMAKE_CURRENT_SOURCE_DIR}/cmake/zos-utf8-inplace.cmake
   WORKING_DIRECTORY ${FSH_GEN_DIR}
   VERBATIM)
 
 add_custom_command(OUTPUT ${FSH_GEN_DIR}/token.h
   COMMAND ${CMAKE_COMMAND} -E make_directory ${FSH_GEN_DIR}
-  COMMAND ${FSH_BUILD_SHELL} ${FSH_SRC_DIR}/mktokens
+  COMMAND ${FSH_GEN_ENV} ${FSH_BUILD_SHELL} ${FSH_SRC_DIR}/mktokens
+  COMMAND ${FSH_ZOS_TAG_UTF8} ${FSH_GEN_DIR}/token.h
   DEPENDS ${FSH_SRC_DIR}/mktokens
   WORKING_DIRECTORY ${FSH_GEN_DIR}
   VERBATIM)
 
 add_custom_command(OUTPUT ${FSH_GEN_DIR}/builtins.c ${FSH_GEN_DIR}/builtins.h
   COMMAND ${CMAKE_COMMAND} -E make_directory ${FSH_GEN_DIR}
-  COMMAND ${FSH_BUILD_SHELL} ${FSH_SRC_DIR}/mkbuiltins ${FSH_SRC_DIR}
+  COMMAND ${FSH_GEN_ENV} ${FSH_BUILD_SHELL} ${FSH_SRC_DIR}/mkbuiltins ${FSH_SRC_DIR}
+  COMMAND ${FSH_ZOS_TAG_UTF8} ${FSH_GEN_DIR}/builtins.c ${FSH_GEN_DIR}/builtins.h
   DEPENDS ${FSH_SRC_DIR}/mkbuiltins ${FSH_SRC_DIR}/builtins.def
     ${FSH_SRC_DIR}/shell.h
   WORKING_DIRECTORY ${FSH_GEN_DIR}
