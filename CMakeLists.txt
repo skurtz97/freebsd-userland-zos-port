@@ -228,6 +228,22 @@ if(CLANG_TIDY_EXE)
     COMMENT "clang-tidy" VERBATIM)
 endif()
 
+# Every shell script this project writes is POSIX sh, including the test
+# scripts. A test may deliberately exercise a non-POSIX construct; those
+# lines carry a narrow shellcheck disable with the reason next to them.
+file(GLOB FSH_SHELL_SCRIPTS CONFIGURE_DEPENDS
+  ${CMAKE_CURRENT_SOURCE_DIR}/bench/*.sh
+  ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.sh)
+list(APPEND FSH_SHELL_SCRIPTS ${CMAKE_CURRENT_SOURCE_DIR}/configure)
+list(REMOVE_DUPLICATES FSH_SHELL_SCRIPTS)
+
+find_program(SHELLCHECK_EXE shellcheck)
+if(SHELLCHECK_EXE)
+  add_custom_target(shellcheck
+    COMMAND ${SHELLCHECK_EXE} --shell=sh ${FSH_SHELL_SCRIPTS}
+    COMMENT "shellcheck (POSIX sh) on all project shell scripts" VERBATIM)
+endif()
+
 # ---- Reference shell and benchmark ----------------------------------
 # The vendored FreeBSD sh is the benchmark reference, not part of fsh.
 # It is built out of tree by bench/build-refs.sh and is never installed.

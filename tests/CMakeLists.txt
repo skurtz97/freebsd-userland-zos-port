@@ -55,3 +55,8 @@ add_test(NAME regression
 set_tests_properties(regression PROPERTIES
   TIMEOUT 120
   FAIL_REGULAR_EXPRESSION "FAIL")
+
+if(SHELLCHECK_EXE)
+  add_test(NAME shellcheck
+    COMMAND ${SHELLCHECK_EXE} --shell=sh ${FSH_SHELL_SCRIPTS})
+endif()
