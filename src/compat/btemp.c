@@ -93,16 +93,6 @@ unsetenv(const char *name)
 	return 0;
 }
 
-void *
-reallocarray(void *ptr, size_t nmemb, size_t size)
-{
-	if (size != 0 && nmemb > SIZE_MAX / size) {
-		errno = ENOMEM;
-		return NULL;
-	}
-	return realloc(ptr, nmemb * size);
-}
-
 char *
 strsep(char **stringp, const char *delim)
 {
@@ -118,32 +108,6 @@ strsep(char **stringp, const char *delim)
 		*stringp = NULL;
 	}
 	return s;
-}
-
-char *
-strndup(const char *s, size_t n)
-{
-	const char *end = memchr(s, '\0', n);
-	size_t len = end != NULL ? (size_t)(end - s) : n;
-	char *copy = malloc(len + 1);
-
-	if (copy == NULL)
-		return NULL;
-	memcpy(copy, s, len);
-	copy[len] = '\0';
-	return copy;
-}
-
-char *
-strsignal(int sig)
-{
-	static char buf[64];
-
-	if (sig >= 0 && sig < NSIG && sys_signame[sig] != NULL)
-		snprintf(buf, sizeof(buf), "%s", sys_signame[sig]);
-	else
-		snprintf(buf, sizeof(buf), "Signal %d", sig);
-	return buf;
 }
 
 int
