@@ -162,6 +162,14 @@ if(FSH_WITH_LIBEDIT)
   target_link_libraries(edit PUBLIC ${CURSES_LIBRARIES})
   if(NOT FSH_ZOS)
     target_compile_definitions(edit PRIVATE _GNU_SOURCE)
+  else()
+    # z/OS wchar_t holds EBCDIC code points rather than ISO 10646.
+    # libedit guards against non-ASCII-compatible wchar_t because its
+    # editing code assumes the character and multibyte encodings agree;
+    # on z/OS its literals, input and mbrtowc/wcrtomb conversions all use
+    # the same EBCDIC locale, so the assumption holds well enough to
+    # build and run. Tell libedit's chartype.h not to reject it.
+    target_compile_definitions(edit PRIVATE __STDC_ISO_10646__=201706L)
   endif()
 endif()
 
