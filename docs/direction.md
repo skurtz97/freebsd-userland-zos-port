@@ -91,8 +91,9 @@ pure POSIX runs the system `sh`; `compat.md` says so.
 ## Consequences already accepted
 
 - **The name `zksh` collides** with the AT&T ksh88-based z/OS `sh`
-  (UCS/DFKSH). The man page opens by saying this is not UCS ksh;
-  default install is `/usr/local/bin/zksh`.
+  (UCS/DFKSH). No man page is installed yet: the copied oksh page was
+  removed because it described the old base, not zksh or the FreeBSD
+  userland direction. Default install is `/usr/local/bin/zksh`.
 - **28,036 lines at import.** The binary is 269 KB stripped and
   starts in 0.4 ms, so the size is review cost, not runtime cost.
 - **`${v/pat/rep}` is missing** from pdksh and must be added; it is

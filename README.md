@@ -99,5 +99,6 @@ the document, never a silent misparse.
 
 ## Licence
 
-oksh's licence (see `LEGAL` and `oksh.1`); our changes are under the
-same terms. This is not oksh, not pdksh, and not AT&T ksh.
+oksh's public-domain terms; the source pin is recorded in
+`docs/merge.md`. Our changes are under the same terms. This is not
+oksh, not pdksh, and not AT&T ksh.
