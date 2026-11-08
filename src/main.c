@@ -61,6 +61,7 @@
 #include "cd.h"
 #include "redir.h"
 #include "builtins.h"
+#include "fsh/zos_syscvt.h"
 #ifndef NO_HISTORY
 #include "myhistedit.h"
 #endif
@@ -97,6 +98,9 @@ main(int argc, char *argv[])
 	char *shinit;
 	int login;
 
+	/* Make the shell a native EBCDIC program before anything reads or
+	 * writes a tagged file; see include/fsh/zos_syscvt.h. */
+	zos_autocvt_off();
 	(void) setlocale(LC_ALL, "");
 	initcharset();
 	state = 0;
