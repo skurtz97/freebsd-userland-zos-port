@@ -4,6 +4,13 @@ What works today, what is only designed, and what comes next.
 
 Last rewritten: 2026-11-05, when the base changed to oksh.
 
+> **Later update (2026-11-08):** the base is now FreeBSD `bin/sh`, and
+> `contrib/libedit` lives in the same userland repository
+> (`freebsd-userland-zos`) as `vendor/freebsd`. The oksh-specific
+> statements below are historical. The current z/OS build result and
+> every fix it needed are in `docs/port.md` ("2026-11-08: the FreeBSD
+> bin/sh base builds on z/OS") and `docs/session-2026-11-08.md`.
+
 ## Implemented and verified on Linux
 
 Built 2026-11-05 with clang 22, `./configure && make -j8`, and each
@@ -40,6 +47,19 @@ shell through a real pty (`pty.fork()`, python), not by reading code:
 `${v/pat/rep}` and its three siblings were added the same day; see
 [docs/language.md](language.md) Level 2 for the rules and
 `tests/param.sh` for the proof.
+
+## Verified on z/OS (2026-11-08, FreeBSD base)
+
+Host: z/OS 3.2 (CBT 29.00), Open XL C/C++ 2.1, CMake 3.31 + Ninja
+from zopen, ncurses 6.6 wide static, zoslib.
+
+| Part | State |
+| ---- | ----- |
+| Build | `bash ./configure --zos --release --ninja && cmake --build build-zos -j4` -- 79 targets, no binder errors |
+| Binary | 3,813,376 bytes, XPLINK 64-bit, static ncurses + zoslib + vendored libedit |
+| Output | `fsh -c 'echo hello'` writes EBCDIC `88 85 93 93 96 15` to an IBM-1047-tagged file |
+| Scripts | an untagged IBM-1047 script with a `for` loop runs, status 0 |
+| ctest | **not green**: smoke regexes are ASCII while output is EBCDIC, and the harness/test scripts are UTF-8-tagged (P29) |
 
 ## Verified on z/OS (2026-11-06)
 
