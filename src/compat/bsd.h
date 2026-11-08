@@ -80,6 +80,7 @@ FILE *fwopen(void *, int (*)(void *, const char *, int));
 
 #ifdef __MVS__
 /* z/OS libc gaps used by the FreeBSD shell; implemented in btemp.c. */
+typedef void (*sig_t)(int);
 int eaccess(const char *, int);
 int setenv(const char *, const char *, int);
 int unsetenv(const char *);

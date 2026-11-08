@@ -598,12 +598,17 @@ newerf (const char *f1, const char *f2)
 	if (stat(f1, &b1) != 0 || stat(f2, &b2) != 0)
 		return 0;
 
+#ifdef __MVS__
+	/* z/OS struct stat has only second-resolution st_mtime. */
+	return (b1.st_mtime > b2.st_mtime);
+#else
 	if (b1.st_mtim.tv_sec > b2.st_mtim.tv_sec)
 		return 1;
 	if (b1.st_mtim.tv_sec < b2.st_mtim.tv_sec)
 		return 0;
 
        return (b1.st_mtim.tv_nsec > b2.st_mtim.tv_nsec);
+#endif
 }
 
 static int
