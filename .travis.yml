@@ -4,4 +4,3 @@ os:
   - osx
 compiler:
   - clang
-  - gcc
