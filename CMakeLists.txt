@@ -166,13 +166,19 @@ if(FSH_WITH_LIBEDIT)
   if(NOT FSH_ZOS)
     target_compile_definitions(edit PRIVATE _GNU_SOURCE)
   else()
+    # libedit needs the same z/OS feature macros as fsh itself:
+    # getline() and SIGWINCH are hidden without them.
+    #
     # z/OS wchar_t holds EBCDIC code points rather than ISO 10646.
     # libedit guards against non-ASCII-compatible wchar_t because its
     # editing code assumes the character and multibyte encodings agree;
     # on z/OS its literals, input and mbrtowc/wcrtomb conversions all use
     # the same EBCDIC locale, so the assumption holds well enough to
     # build and run. Tell libedit's chartype.h not to reject it.
-    target_compile_definitions(edit PRIVATE __STDC_ISO_10646__=201706L)
+    target_compile_definitions(edit PRIVATE
+      _ALL_SOURCE _XPLATFORM_SOURCE _OPEN_SYS _OPEN_SYS_FILE_EXT
+      _POSIX_C_SOURCE=200809L
+      __STDC_ISO_10646__=201706L)
   endif()
 endif()
 
