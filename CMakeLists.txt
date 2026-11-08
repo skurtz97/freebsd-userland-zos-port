@@ -343,11 +343,14 @@ add_executable(fsh ${FSH_SOURCES}
   ${FSH_GEN_DIR}/token.h)
 
 target_include_directories(fsh PRIVATE
-  ${FSH_GEN_DIR}
   ${FSH_SRC_DIR}
   ${FSH_SRC_DIR}/bltin
   ${FSH_SRC_DIR}/compat
   ${FSH_INCLUDE_DIR})
+# The generated headers are included with quotes. Keep them out of the
+# angle-bracket search path: z/OS <stdlib.h> itself includes a system
+# <builtins.h>, which would otherwise pick up the shell's generated one.
+target_compile_options(fsh PRIVATE -iquote ${FSH_GEN_DIR})
 if(FSH_ZOS)
   # z/OS has no <sys/param.h>, and its <wchar.h> has no wcsdup().
   target_include_directories(fsh PRIVATE ${FSH_SRC_DIR}/compat/zos)
