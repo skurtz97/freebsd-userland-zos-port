@@ -76,12 +76,15 @@ workloads (`arith`, `case`, `func`, `str`) and competitive on the
 process-heavy ones. oksh, dash and ksh93 had no further information
 worth carrying as checkouts, so their submodules were removed.
 
-Only `vendor/freebsd-sh` remains. It is the submodule
-`skurtz97/freebsd-userland-zos-port-src`, the FreeBSD userland port for
-z/OS starting with `bin/sh`; its FreeBSD source pin is
+Only `vendor/freebsd` remains. It is the submodule
+`skurtz97/freebsd-userland-zos`, the FreeBSD userland source for z/OS
+in the FreeBSD monorepo layout. It contains the FreeBSD `bin/sh`
+subset, `contrib/libedit` and `lib/libedit`; its FreeBSD source pin is
 `release/15.1.0`, commit
-`96841ea08dcfa84b954a32dc5ae1a26c28966cf4`. The oksh source pin above
-is still the lineage of `src/`; it is not a vendored build.
+`96841ea08dcfa84b954a32dc5ae1a26c28966cf4`. The previous
+`vendor/freebsd-sh` and `vendor/libedit` submodules were merged into
+this single repository on 2026-11-08. The oksh source pin above is
+still the lineage of `src/`; it is not a vendored build.
 
 ## Disasters this file remembers
 

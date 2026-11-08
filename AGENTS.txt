@@ -17,9 +17,11 @@ Companion repos, do not confuse them:
   ~/src/oksh   upstream oksh + the zos-spawn branch this tree came from
   ~/src/zash   the ash reference implementation, separate remote,
                NOT vendored here
-  ~/src/freebsd-userland-zos-port-src
-               the FreeBSD userland port for z/OS; its bin/sh is the
-               only vendored benchmark reference (vendor/freebsd-sh)
+  ~/src/freebsd-userland-zos
+               the FreeBSD userland source for z/OS, one monorepo in
+               the FreeBSD layout (bin/, usr.bin/, contrib/, lib/);
+               its bin/sh is the benchmark reference (vendor/freebsd) and
+               its contrib/libedit is what fsh links for line editing
   ~/src/zrx    unrelated (REXX interpreter)
 
 The oksh, dash and ksh93 vendor trees were removed on 2026-11-07.
@@ -199,7 +201,7 @@ behaviour), docs/language.md (anything a parser now accepts).
     run.
   - Re-adding the oksh, dash or ksh93 vendor trees. The benchmark
     settled that question: FreeBSD sh was fastest, so only it remains
-    as `vendor/freebsd-sh` (a submodule). A new reference shell needs a
+    as `vendor/freebsd` (a submodule). A new reference shell needs a
     new question, not nostalgia.
 
 
@@ -226,9 +228,10 @@ behaviour), docs/language.md (anything a parser now accepts).
   first committed as 3d04c43 on branch zos-spawn in ~/src/oksh.
 - zash: chars GNU/BSD independent, see its DESIGN.md; ideas only,
   nothing copied yet.
-- Vendored benchmark reference: `vendor/freebsd-sh` is the submodule
-  `skurtz97/freebsd-userland-zos-port-src`, whose FreeBSD bin/sh pin is
-  freebsd/freebsd-src release/15.1.0,
+- Vendored benchmark reference: `vendor/freebsd` is the submodule
+  `skurtz97/freebsd-userland-zos`, the FreeBSD userland monorepo for
+  z/OS. It contains `bin/sh` and `contrib/libedit` at FreeBSD
+  freebsd-src release/15.1.0,
   96841ea08dcfa84b954a32dc5ae1a26c28966cf4.
 - oksh, dash and ksh93 vendor checkouts were removed on 2026-11-07
   after the benchmark showed FreeBSD sh was fastest on the CPU-bound

@@ -102,8 +102,8 @@ run_logged() {
 build_freebsd_sh() {
 	src=$out/src/freebsd-sh
 	log=$out/log/freebsd-sh.log
-	echo "build-refs: freebsd-sh (vendor/freebsd-sh, freebsd-userland-zos-port)"
-	copy_tree "$root/vendor/freebsd-sh" "$src"
+	echo "build-refs: freebsd-sh (vendor/freebsd, freebsd-userland-zos)"
+	copy_tree "$root/vendor/freebsd" "$src"
 	: >"$log"
 	(
 		cd "$src"
@@ -141,8 +141,8 @@ build_freebsd_sh() {
 	chmod 755 "$out/bin/freebsd-sh"
 }
 
-require_submodule freebsd-sh
-if need_build freebsd-sh "$root/vendor/freebsd-sh"; then
+require_submodule freebsd
+if need_build freebsd-sh "$root/vendor/freebsd"; then
 	build_freebsd_sh
 fi
 

@@ -1,8 +1,8 @@
 # Vendored dependencies
 
-The vendor trees are **git submodules**, not sets of files in this
+The vendor tree is **one git submodule**, not a set of files in this
 repository, so the superproject records only a gitlink and the pin in
-`.gitmodules`. They are part of the build, not only references.
+`.gitmodules`. It is part of the build, not only a reference.
 
 ```sh
 git submodule update --init --recursive
@@ -11,7 +11,7 @@ git submodule update --init --recursive
 Run that once after cloning. If the submodule is missing,
 `bench/build-refs.sh` stops with that command in its error message.
 
-## Why only FreeBSD sh remains
+## Why only FreeBSD userland remains
 
 The vendor trees existed to answer one question: how fast is zksh
 compared with the shells it could have been built on? On 2026-11-07
@@ -30,17 +30,22 @@ main repository heavier and its status noisier.
 
 | Directory | Repository | Pin | Licence |
 | --------- | ---------- | --- | ------- |
-| `freebsd-sh/` | <https://github.com/skurtz97/freebsd-userland-zos-port-src> | commit `2bc9d53`, tag `freebsd-15.1.0` | BSD-3-Clause / BSD-2-Clause, per file |
-| `libedit/` | <https://github.com/skurtz97/freebsd-userland-zos-port-libedit> | commit `4d79ff1`, tag `freebsd-15.1.0` | BSD-3-Clause / BSD-2-Clause, per file |
+| `freebsd/` | <https://github.com/skurtz97/freebsd-userland-zos> | commit `ba31715`, tag `freebsd-15.1.0` | BSD-3-Clause / BSD-2-Clause, per file |
 
-`freebsd-sh/` is the dedicated **FreeBSD userland port source for
-z/OS** repository, starting with `bin/sh`. It is not the whole FreeBSD source
-tree. It contains only the parts needed to build `bin/sh`: `bin/sh`,
-`bin/kill`, `bin/test`, and `usr.bin/printf`, plus the Linux benchmark
-adapter. Its upstream pin is FreeBSD `release/15.1.0`, commit
+`freebsd/` is the **FreeBSD userland source for z/OS**: one
+repository, laid out like the FreeBSD source monorepo. It contains the
+FreeBSD `bin/sh` subset (`bin/sh`, `bin/kill`, `bin/test`,
+`usr.bin/printf`) together with FreeBSD `contrib/libedit` and its
+`lib/libedit` build glue. Its upstream pin is FreeBSD
+`release/15.1.0`, commit
 `96841ea08dcfa84b954a32dc5ae1a26c28966cf4`.
 
-The compat files under `freebsd-sh/compat/` are not from FreeBSD
+The libedit sources used by fsh are therefore not a second submodule:
+they are `vendor/freebsd/contrib/libedit` in the same checkout. The
+earlier `freebsd-sh/` and `libedit/` submodules were merged into this
+single repository on 2026-11-08.
+
+The compat files under `freebsd/compat/` are not from FreeBSD
 upstream:
 
 | File | Origin |
@@ -50,7 +55,7 @@ upstream:
 | `compat/setmode.c` | OpenBSD `setmode.c` (same UCB BSD licence as FreeBSD's copy), needed for `umask -S` |
 | `compat/strlcpy.c` | OpenBSD strlcpy/strlcat implementation (ISC-style UCB licence) |
 
-`freebsd-sh/patches/0001-linux-build.patch` changes two things for
+`freebsd/patches/0001-linux-build.patch` changes two things for
 Linux:
 
 1. `mktokens` and `mkbuiltins` use a GNU-compatible `mktemp` template.
@@ -59,9 +64,11 @@ Linux:
 
 Nothing in the parser, evaluator or builtin implementations is
 patched. FreeBSD's `filecomplete.h` is a libedit extension Linux's
-libedit does not ship, so this build uses `-DNO_HISTORY`; line editing
-and `fc`/`bind` are absent from this benchmark shell. That does not
-affect the non-interactive workloads.
+system libedit does not ship, so the reference benchmark shell is
+built with `-DNO_HISTORY`; line editing and `fc`/`bind` are absent
+from that build. That does not affect the non-interactive workloads.
+fsh's CMake build links the vendored `contrib/libedit`, so fsh keeps
+line editing and history.
 
 ## Build
 
@@ -107,15 +114,16 @@ scheduler hiccup.
 ## Updating the pin
 
 The submodule checkout is the pin. Make the change in
-`skurtz97/freebsd-userland-zos-port-src` first, push it, then update the
+`skurtz97/freebsd-userland-zos` first, push it, then update the
 submodule checkout and record the new gitlink:
 
 ```sh
-git -C vendor/freebsd-sh fetch
-git -C vendor/freebsd-sh checkout <commit>
-git add vendor/freebsd-sh .gitmodules
+git -C vendor/freebsd fetch
+git -C vendor/freebsd checkout <commit>
+git add vendor/freebsd .gitmodules
+git commit
 ```
 
 Do not edit files inside the submodule to make a zksh build pass; the
-change belongs in the port repository. Update this table and
+change belongs in the userland repository. Update this table and
 `docs/merge.md` in the same commit.
