@@ -1,3 +1,4 @@
+# shellcheck shell=sh disable=SC3041,SC3060,SC2154
 # ${v/pat/rep} and its three siblings -- the ksh-glob replacement
 # operators documented in docs/language.md (D2 decision, 2026-11-06).
 #

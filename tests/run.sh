@@ -20,7 +20,7 @@ zos=0
 # EBCDIC shell cannot parse ASCII bytes as shell syntax, so each test is
 # converted before the shell sees it.  Written for /bin/sh: no $( )
 # beyond the one above (matched by CMake's own usage), no local.
-: ${FSH_ENCODE=}
+: "${FSH_ENCODE=}"
 fail=0
 for t in "$dir"/*.sh; do
 	# run.sh is this runner and run-c.sh is its per-test wrapper (the one

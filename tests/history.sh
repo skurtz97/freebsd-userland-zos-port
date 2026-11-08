@@ -5,7 +5,9 @@ export HOME="$T" HISTFILE="$T/h" HISTCONTROL=ignoreboth
 # history line carries no temp-directory name: the expectation must not
 # depend on $T, and run.sh substitutes it in expected output, which
 # would differ from a quoted here-doc's literal text.
-printf 'sed s/one/ONE/ "$1" > "$1.new" && mv "$1.new" "$1"\n' > "$T/ed.sh"
+cat > "$T/ed.sh" <<'EOF'
+sed s/one/ONE/ "$1" > "$1.new" && mv "$1.new" "$1"
+EOF
 "$SH" -i 2>/dev/null <<'EOT'
 echo one
 echo two
@@ -18,6 +20,8 @@ fc -ln 1 2
 FCEDIT="sh ./ed.sh" fc 1
 EOT
 echo "--- file:"; cat "$T/h"
+# POSIX has no portable way to print mode bits; the path is controlled.
+# shellcheck disable=SC2012
 ls -l "$T/h" | cut -c1-10
 # a second session loads the file; HISTFILESIZE trims it
 HISTFILESIZE=3 "$SH" -i 2>/dev/null <<'EOT'
