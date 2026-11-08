@@ -1,8 +1,8 @@
 # Feature checks, replacing oksh's configure script.
 #
-# vendor/oksh/configure probes each of these by compiling and linking a
-# snippet. CMake does the same at configure time; the answers land in
-# pconfig.h through cmake/pconfig.h.in.
+# oksh's configure (retired; pin in docs/merge.md) probed each of these
+# by compiling and linking a snippet. CMake does the same at configure
+# time; the answers land in pconfig.h through cmake/pconfig.h.in.
 #
 # Two rules that matter on z/OS:
 #   - __dead is only defined if the system does not already define it.

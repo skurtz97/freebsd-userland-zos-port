@@ -40,11 +40,12 @@ cmake --build build-san -j8
 
 ## What was replaced
 
-oksh's `configure` is a 1,445-line `sh` script that probes the
-compiler and then writes a `Makefile` and `pconfig.h`, both into the
+oksh's `configure` was a 1,445-line `sh` script that probed the
+compiler and then wrote a `Makefile` and `pconfig.h`, both into the
 source directory, with `-w` (all warnings off) in the default flags.
-It is kept verbatim in `vendor/oksh/configure` as the reference for
-what each probe does.
+The oksh vendor checkout was removed after the benchmark; its source
+pin is in [merge.md](merge.md). The probe behaviour that matters is
+now only in `cmake/checks.cmake` and `cmake/pconfig.h.in`.
 
 | oksh configure | now |
 | -------------- | --- |

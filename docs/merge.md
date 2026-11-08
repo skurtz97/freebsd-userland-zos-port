@@ -53,7 +53,7 @@ prove wrong under EBCDIC (port item C1).
 
 | Phase | Content | State |
 | ----- | ------- | ----- |
-| 0 | Repository structure and the CMake build. Sources moved to `src/`, names unchanged; oksh's `configure`, man pages and notes to `vendor/oksh/`; zash's donors staged | **done** — Linux build verified, behaviour identical to the pre-move build |
+| 0 | Repository structure and the CMake build. Sources moved to `src/`, names unchanged; oksh's `configure` and man pages were used as references; zash's donors staged | **done** — Linux build verified, behaviour identical to the pre-move build |
 | 1 | z/OS layer: `tso`/`chtag`/`extattr` as builtins; `sys_zos.c` redirection; MVS data sets | staged |
 | 2 | Interaction: `zhistory`/`complete`/`zprompt` on libedit; **replaces oksh's built-in editor** | not started |
 | 3 | Close out `~/src/zash`: archive the repo, point it at zksh | not started |
@@ -67,8 +67,25 @@ donors stay in `src/zos/` as `.ref` files so the source glob never
 compiles them. A rebase against a new oksh tag is therefore the
 same `git mv` in reverse plus the ledger in `docs/port.md`.
 
+## Vendored benchmark references (2026-11-07, later cleaned up)
+
+The vendor trees existed to answer one question: how fast is zksh
+against the shells it could have been built on? The 2026-11-07
+benchmark answered it. FreeBSD sh was fastest on the CPU-bound
+workloads (`arith`, `case`, `func`, `str`) and competitive on the
+process-heavy ones. oksh, dash and ksh93 had no further information
+worth carrying as checkouts, so their submodules were removed.
+
+Only `vendor/freebsd-sh` remains. It is the submodule
+`skurtz97/freebsd-userland-zos-port`, the FreeBSD userland port for
+z/OS starting with `bin/sh`; its FreeBSD source pin is
+`release/15.1.0`, commit
+`96841ea08dcfa84b954a32dc5ae1a26c28966cf4`. The oksh source pin above
+is still the lineage of `src/`; it is not a vendored build.
+
 ## Disasters this file remembers
 
-The first project tree (`~/src/freebsd-sh-port-zos`, FreeBSD ash) was
-deleted on 2026-11-05 with its entire git history. It had no remote.
-Every tree in this merge now has one.
+The first project tree (an earlier FreeBSD ash port, then at
+`~/src/freebsd-sh-port-zos`) was deleted on 2026-11-05 with its
+entire git history. It had no remote. Every tree in this merge now
+has one.

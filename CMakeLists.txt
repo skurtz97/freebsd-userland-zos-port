@@ -6,8 +6,10 @@ project(zksh VERSION 0.1.0 LANGUAGES C)
 # docs/direction.md for the rules and docs/merge.md for what came from
 # where.
 #
-# Sources in src/ keep their upstream oksh names, so a rebase against
-# vendor/oksh (ibara/oksh oksh-7.9) stays a mechanical diff.
+# Sources in src/ keep their upstream oksh names, so a rebase against the
+# oksh-7.9 pin (docs/merge.md) stays a mechanical diff. The oksh, dash and
+# ksh93 vendor checkouts were removed after the benchmark answered its
+# question; only the FreeBSD sh reference is kept.
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -64,15 +66,19 @@ if(ZKSH_EDITOR)
   endif()
 endif()
 
-# Test invocation. Two host differences, both measured on z/OS:
+# Test invocation. Three host differences, all measured on z/OS:
 #   - zksh writes IBM-1047 there, so the tests decode its output before
 #     matching ASCII expectations (tests/run-c.sh, ZKSH_DECODE);
+#   - zksh *reads* IBM-1047 there, and an EBCDIC shell cannot parse
+#     ASCII bytes as shell syntax, so each test script is converted to
+#     IBM-1047 before the shell sees it (tests/run.sh, ZKSH_ENCODE);
 #   - /bin/sh cannot read this repo's UTF-8-tagged scripts at all
 #     ("FSUM7332 syntax error: got (", with or without _BPXK_AUTOCVT),
 #     so the runner is bash, which reads them as they are. bash is
 #     development tooling here, not a runtime dependency of zksh.
 if(ZKSH_ZOS)
   set(ZKSH_DECODE IBM-1047)
+  set(ZKSH_ENCODE IBM-1047)
   find_program(ZKSH_TEST_SHELL NAMES bash HINTS
     /usr/local/zopen/usr/local/bin
     "${ZKSH_ZOPEN_ROOT}/usr/local/bin")
@@ -83,6 +89,7 @@ if(ZKSH_ZOS)
   endif()
 else()
   set(ZKSH_DECODE "")
+  set(ZKSH_ENCODE "")
   find_program(ZKSH_TEST_SHELL NAMES sh HINTS /bin)
 endif()
 if(NOT ZKSH_TEST_SHELL)
@@ -188,9 +195,11 @@ set_target_properties(zksh PROPERTIES OUTPUT_NAME ${ZKSH_PROG})
 
 include(GNUInstallDirs)
 install(TARGETS zksh RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/vendor/oksh/ksh.1
-  DESTINATION ${CMAKE_INSTALL_MANDIR}/man1
-  RENAME ${ZKSH_PROG}.1)
+# No man page is installed yet. The copied oksh ksh.1 was removed when
+# the FreeBSD sh port became the candidate foundation: it documents the
+# old base, not zksh or the FreeBSD userland port. Write man/zksh.1 once
+# the base decision is settled; FreeBSD sh's own page stays in the
+# vendor submodule at bin/sh/sh.1.
 
 # ---- Checks and formatting -------------------------------------------
 
@@ -217,6 +226,34 @@ if(CLANG_TIDY_EXE)
     COMMAND ${CLANG_TIDY_EXE} -p ${CMAKE_BINARY_DIR}
       ${ZKSH_SOURCES}
     COMMENT "clang-tidy" VERBATIM)
+endif()
+
+# ---- Reference shell and benchmark ----------------------------------
+# The vendored FreeBSD sh is the benchmark reference, not part of zksh.
+# It is built out of tree by bench/build-refs.sh and is never installed.
+# The target is omitted on z/OS: there is no second shell to build there.
+if(NOT ZKSH_ZOS)
+  add_custom_target(refshells
+    COMMAND ${CMAKE_COMMAND} -E env ZKSH_REF_BUILD=${CMAKE_BINARY_DIR}/refs
+      /bin/sh ${CMAKE_CURRENT_SOURCE_DIR}/bench/build-refs.sh
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMENT "Building the vendored FreeBSD sh reference"
+    VERBATIM)
+
+  find_program(BASH_EXECUTABLE bash)
+  if(BASH_EXECUTABLE)
+    add_custom_target(bench
+      COMMAND ${BASH_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/bench/run.sh
+        $<TARGET_FILE:zksh>
+        ${CMAKE_BINARY_DIR}/refs/bin/freebsd-sh
+      DEPENDS zksh refshells
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+      COMMENT "Benchmarking zksh against FreeBSD sh"
+      VERBATIM)
+  else()
+    message(WARNING
+      "zksh: bash not found; the 'bench' target needs it (bench/run.sh).")
+  endif()
 endif()
 
 enable_testing()
