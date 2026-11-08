@@ -1,4 +1,4 @@
-/*	zos_spawn.c -- z/OS process creation layer for zksh
+/*	zos_spawn.c -- z/OS process creation layer for fsh
  *
  * Process creation on z/OS UNIX System Services is very unlike Unix:
  *
@@ -84,7 +84,7 @@ int zos_spawn_child(int flags, struct op *t, int tty_fd, pid_t *pgrp_out,
  * rather than as locals.  Static only: zos_spawn_init runs once.
  */
 static char shareas_env[] = "_BPX_SHAREAS=YES";
-static char jobname_env[] = "_BPX_JOBNAME=ZKSH";
+static char jobname_env[] = "_BPX_JOBNAME=FSH";
 
 void zos_spawn_init(void) {
   const char *cp;
