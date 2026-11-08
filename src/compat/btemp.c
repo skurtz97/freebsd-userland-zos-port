@@ -1,6 +1,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <limits.h>
+#include <poll.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -134,6 +135,31 @@ strsignal(int sig)
 	else
 		snprintf(buf, sizeof(buf), "Signal %d", sig);
 	return buf;
+}
+
+int
+ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *tmo,
+    const sigset_t *sigmask)
+{
+	sigset_t oset;
+	int timeout = -1;
+	int rc;
+
+	if (tmo != NULL) {
+		if (tmo->tv_sec > INT_MAX / 1000)
+			timeout = INT_MAX;
+		else {
+			long ms = tmo->tv_sec * 1000 +
+			    (tmo->tv_nsec + 999999) / 1000000;
+			timeout = ms > INT_MAX ? INT_MAX : (int)ms;
+		}
+	}
+	if (sigmask != NULL)
+		sigprocmask(SIG_SETMASK, sigmask, &oset);
+	rc = poll(fds, nfds, timeout);
+	if (sigmask != NULL)
+		sigprocmask(SIG_SETMASK, &oset, NULL);
+	return rc;
 }
 
 void
