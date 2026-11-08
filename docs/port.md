@@ -252,3 +252,64 @@ fixed. The tests are not wrong and must not be re-tagged to hide it —
 AGENTS.txt 3 says a file's character set is its chtag, and a test file
 of ASCII text is properly tagged UTF-8. Do not "fix" this by converting
 the test scripts to IBM-1047.
+
+## 2026-11-08: the FreeBSD bin/sh base builds on z/OS
+
+The base was rebuilt from FreeBSD `bin/sh` (`b691be0`) and then
+`contrib/libedit` was merged into the same userland repository. The
+first z/OS build of that base needed the entries below. All are local
+`src/`, `cmake/` or `compat/` work; nothing in the imported FreeBSD
+files changed except the two guarded d_type/st_mtim sites.
+
+Command that succeeds on the CBT host (z/OS 3.2, Open XL 2.1,
+CMake+Ninja from zopen):
+
+```sh
+export PATH=/usr/local/zopen/usr/local/bin:$PATH
+bash ./configure --zos --release --ninja --build-dir=build-zos
+cmake --build build-zos -j4
+```
+
+| File / area | Edit | Why |
+| ----------- | ---- | --- |
+| `CMakeLists.txt` | force-include `compat/bsd.h` for `mknodes`, `mksyntax` and `fsh` on z/OS too | FreeBSD sources use `__unused`, `__printflike`, `__dead2`, `qsort_s`; z/OS headers do not provide them |
+| `CMakeLists.txt` | `FSH_LIBEDIT_DIR` is `vendor/freebsd/contrib/libedit` | libedit and sh are one submodule now |
+| `cmake/libedit-config.h.in` | `#cmakedefine` instead of `#cmakedefine01` | libedit tests `HAVE_SYS_CDEFS_H`/`HAVE_TERMCAP_H` with `#ifdef`; `0` still counts as defined |
+| `CMakeLists.txt` | z/OS `edit` target gets `_ALL_SOURCE _XPLATFORM_SOURCE _OPEN_SYS _OPEN_SYS_FILE_EXT _POSIX_C_SOURCE=200809L` and `__STDC_ISO_10646__` | exposes `getline`/`SIGWINCH`; z/OS `wchar_t` is EBCDIC, not ISO 10646, but libedit's literals and conversions agree |
+| `CMakeLists.txt`, `cmake/zos-convert.cmake`, `cmake/zos-utf8-inplace.cmake` | convert `nodetypes`/`nodes.c.pat` to IBM-1047 for `mknodes`; convert `nodes.c/h`, `syntax.c/h` back to UTF-8; run `mktokens`/`mkbuiltins` with zopen GNU text tools and tag their output UTF-8 | Open XL accepts UTF-8 source only; the C generators speak EBCDIC, the shell generators mixed ASCII here-docs with EBCDIC awk/sed/tr output |
+| `CMakeLists.txt` | generated headers are on `-iquote`, not `-I` | z/OS `<stdlib.h>` includes a system `<builtins.h>`, which otherwise picked up the shell's generated header |
+| `CMakeLists.txt` | link `FSH_CURSES_LINK_ITEMS` after `libncursesw.a` | libncursesw needs zoslib (`__fopen_ascii`, `__sysconf`); the FreeBSD-base rebuild had dropped this |
+| `src/compat/zos/sys/cdefs.h` | new | z/OS has no `<sys/cdefs.h>`; supplies the BSD annotation macros |
+| `src/compat/zos/sys/param.h` | new | z/OS has no `<sys/param.h>`; supplies `MAXPATHLEN`, `MIN`/`MAX`, `roundup`, `howmany`, `powerof2`, `nitems` |
+| `src/compat/zos/sys/ttydefaults.h` | new | libedit's readline header wants `CTRL()` |
+| `src/compat/zos/paths.h` | new | no `<paths.h>`; six `_PATH_*` macros |
+| `src/compat/zos/string.h` | new | declares `strlcpy`/`strlcat`, pulls in `<strings.h>` for `strcasecmp` |
+| `src/compat/zos/wchar.h` | new | declares the `wcsdup()` in `compat/btemp.c` |
+| `src/compat/zos/fcntl.h` | new | `F_DUPFD_CLOEXEC` falls back to `F_DUPFD` |
+| `src/compat/zos/err.h` | new | no BSD `<err.h>`; `err`/`errx`/`warn`/`warnx` are in `btemp.c` |
+| `src/compat/zos/poll.h` | new | `ppoll()` over `poll()`, implemented in `btemp.c` |
+| `src/compat/bsd.h`, `src/compat/btemp.c` | z/OS declarations/implementations for `eaccess`, `setenv`, `unsetenv`, `strsep`, `wcsdup`, `ppoll`, `err*`/`warn*`; declarations only for `reallocarray`, `strndup`, `strsignal`, which z/OS libc already exports | libc gaps; the three exported symbols must not be redefined or the binder warns IEW2480W |
+| `src/expand.c`, `src/histedit.c` | `d_type` shortcut guarded by `DT_UNKNOWN`/`DT_LNK`/`DT_REG` | z/OS `struct dirent` has no `d_type`; stat each candidate instead |
+| `src/test.c` | `-nt`/`-ot` use `st_mtime` on z/OS | z/OS `struct stat` has no `st_mtim` |
+| `src/compat/bsd.h` | `sig_t` typedef and `WCOREDUMP(status) 0` on z/OS | neither exists in the z/OS headers |
+| `src/output.c`, `src/histedit.c`, `src/compat/btemp.c` | z/OS formatting through `vsnprintf`; `bindcmd` collects `el_parse` output in a temp file; `fwopen` is a stub | z/OS has no `fopencookie`/`cookie_io_functions_t` |
+| `src/main.c` | call `zos_autocvt_off()` before `setlocale()` | the FreeBSD-base rebuild dropped the call; without it writes to IBM-1047-tagged files were converted as if the program were ASCII (`C1 15` became `65 3D`) |
+
+### Verification on z/OS (2026-11-08)
+
+- `cmake --build build-zos -j4` completes: 79 targets, 3,813,376-byte
+  XPLINK binary, no binder errors.
+- `./build-zos/fsh -c 'printf hello' > binary-file` writes
+  `88 85 93 93 96` (EBCDIC `hello`).
+- `./build-zos/fsh -c 'echo hello' > ibm1047-tagged-file` writes
+  `88 85 93 93 96 15`.
+- An untagged IBM-1047 script containing a `for` loop runs and prints
+  three iterations, status 0.
+- `ctest` is **not** green: the `-c` smoke tests compare EBCDIC output
+  against ASCII regexes, and `tests/harness`/`tests/*.sh` are
+  UTF-8-tagged. This is the existing P29 script-conversion problem, not
+  a build failure; see the P29 section above.
+
+Files edited from the imported FreeBSD base (the `/* zos: */` rule):
+`expand.c`, `histedit.c`, `test.c`, `main.c`. The rest is local
+`compat/`, `cmake/` or build glue.
