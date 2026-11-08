@@ -1,4 +1,4 @@
-# zksh
+# freebsd-userland-zos-port
 
 **A true z/OS Korn shell.** oksh (pdksh / ksh88 lineage) brought to
 z/OS UNIX System Services, with a z/OS layer aggressive enough to be a
@@ -20,7 +20,7 @@ POSIX-only shell. See [docs/direction.md](docs/direction.md).
 z/OS ships one POSIX shell (`sh`, System V with some Korn features)
 and tcsh. Neither is a Korn shell. Scripts written for ksh on other
 platforms — `typeset`, `set -A`, `[[ ]]`, `(( ))`, `print`,
-`select` — either fail or need rewriting. zksh is those scripts'
+`select` — either fail or need rewriting. fsh is those scripts'
 home on z/OS, plus the line editing and history that the z/OS `sh`
 does not have.
 
@@ -39,7 +39,7 @@ does not have.
 ```sh
 ./configure --prefix=/usr/local
 make -j8
-./zksh -c 'print hello'
+./fsh -c 'print hello'
 ```
 
 oksh uses a `configure` script that writes a Makefile; there are no

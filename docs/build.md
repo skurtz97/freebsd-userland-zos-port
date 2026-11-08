@@ -13,7 +13,7 @@ holds).
 ```sh
 ./configure                 # shim over cmake -B build
 cmake --build build -j8
-./build/zksh -c 'print hello'
+./build/fsh -c 'print hello'
 ctest --test-dir build
 ```
 
@@ -77,7 +77,7 @@ visible, not yet fixed; `FSH_STRICT` will not pass until they are.
 ```sh
 bash ./configure --zos --release --build-dir=build-zos
 cmake --build build-zos -j4
-./build-zos/zksh -c 'print hello'
+./build-zos/fsh -c 'print hello'
 ctest --test-dir build-zos --output-on-failure
 ```
 
@@ -121,6 +121,6 @@ Override with `-DFSH_CURSES_PREFIX=<dir>` or the two
 prints which one won:
 
 ```
--- zksh: z/OS ncurses at /usr/local/zopen/usr/local/lib/libncursesw.a
--- zksh: ncurses headers at /usr/local/zopen/usr/local/include/ncursesw
+-- fsh: z/OS ncurses at /usr/local/zopen/usr/local/lib/libncursesw.a
+-- fsh: ncurses headers at /usr/local/zopen/usr/local/include/ncursesw
 ```

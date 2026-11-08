@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(freebsd_userland_zos_port VERSION 0.1.0 LANGUAGES C)
 
-# zksh: a z/OS Korn shell. oksh 7.9 (pdksh lineage) as the engine, with a
+# fsh: a z/OS Korn shell. oksh 7.9 (pdksh lineage) as the engine, with a
 # z/OS layer in src/zos_builtins.c and src/zos_spawn.c.  See
 # docs/direction.md for the rules and docs/merge.md for what came from
 # where.
@@ -75,7 +75,7 @@ endif()
 #   - /bin/sh cannot read this repo's UTF-8-tagged scripts at all
 #     ("FSUM7332 syntax error: got (", with or without _BPXK_AUTOCVT),
 #     so the runner is bash, which reads them as they are. bash is
-#     development tooling here, not a runtime dependency of zksh.
+#     development tooling here, not a runtime dependency of fsh.
 if(FSH_ZOS)
   set(FSH_DECODE IBM-1047)
   set(FSH_ENCODE IBM-1047)

@@ -1,4 +1,4 @@
-zksh -- working notes for automated contributors
+freebsd-userland-zos-port (fsh) -- working notes for automated contributors
 
 Project rules are in README.md and docs/direction.md. This file records
 how to work here without wasting cycles, and the mistakes that have
@@ -23,7 +23,7 @@ Companion repos, do not confuse them:
   ~/src/zrx    unrelated (REXX interpreter)
 
 The oksh, dash and ksh93 vendor trees were removed on 2026-11-07.
-The benchmark had one question -- how fast is zksh against the
+The benchmark had one question -- how fast is fsh against the
 alternatives? -- and it answered it: FreeBSD sh was fastest on the
 CPU-bound workloads. Keep the oksh source pin for lineage, not a
 checkout. Do not re-add the retired vendor trees without a new
@@ -34,13 +34,13 @@ measurement that needs them.
 
   git submodule update --init --recursive                  # once after clone
   ./configure --release && cmake --build build -j8        # Linux
-  ./build/zksh -c 'print hello'
+  ./build/fsh -c 'print hello'
   ctest --test-dir build --output-on-failure               # 4 smoke tests
-  cmake --build build --target bench                       # zksh vs FreeBSD sh
+  cmake --build build --target bench                       # fsh vs FreeBSD sh
 
   # z/OS (ibm-clang64 found automatically; cmake+ninja from zopen)
   bash ./configure --zos --release && cmake --build build -j8
-  ./build/zksh -c 'print hello'
+  ./build/fsh -c 'print hello'
   ctest --test-dir build --output-on-failure   # 4/4 on z/OS too
 
 The z/OS build compiles, links, runs and passes ctest as of
@@ -147,7 +147,7 @@ behaviour), docs/language.md (anything a parser now accepts).
   - /bin/sh cannot run this repo's scripts ("FSUM7332 syntax error:
     got ("); it has no $( ). Use bash or oksh. Tagging the file UTF-8
     does not help, and _BPXK_AUTOCVT does not change it.
-  - **A tagged script does not run.** zksh executes only UNTAGGED
+  - **A tagged script does not run.** fsh executes only UNTAGGED
     scripts on z/OS; a tagged one is converted EBCDIC to ASCII on read
     while the literals stay EBCDIC, so the newline is not a separator
     and the parse collapses (docs/port.md P29). Every tests/*.sh is
@@ -160,7 +160,7 @@ behaviour), docs/language.md (anything a parser now accepts).
     zopen's entire shared header tree, which shadows <sys/time.h>,
     <sys/param.h> and friends. Expose ncurses through the one-entry
     shim directory instead.
-  - zksh writes IBM-1047; zopen's utilities write ASCII when the
+  - fsh writes IBM-1047; zopen's utilities write ASCII when the
     destination is untagged. A redirect that mixes builtin and external
     output mixes encodings. Do not "fix" the shell's encoding.
   - The CMake cache is stickier than it looks: a changed probe, a

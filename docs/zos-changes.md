@@ -1,6 +1,6 @@
 # z/OS-specific behaviour
 
-The z/OS layer: what zksh adds because it is on z/OS, and how each
+The z/OS layer: what fsh adds because it is on z/OS, and how each
 piece is switched. **Status: process creation inherited and unverified; builtins
 written and tested only off z/OS; tagging and MVS data sets still to
 come.** Where a piece exists (from the `zos_spawn.c`
@@ -18,7 +18,7 @@ variables switch individual mechanisms.
 | Fork only for shell code | Subshells, pipeline stages that are builtins/functions, `$( )` with shell code, coprocs | same |
 | `_BPX_SHAREAS=YES` | Set at startup so leftover forks are shared daughters | `zos_spawn_init()` |
 | `_OKSH_SHAREAS=NONE` | Leave `_BPX_SHAREAS` alone | `zos_spawn.c` |
-| `_BPX_JOBNAME=OKSH` | Batch display name | `zos_spawn.c` — **to rename ZKSH** |
+| `_BPX_JOBNAME=OKSH` | Batch display name | `zos_spawn.c` — **done: FSH** |
 
 ## Builtins
 

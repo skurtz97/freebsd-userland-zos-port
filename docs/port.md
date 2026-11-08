@@ -40,8 +40,8 @@ oksh `configure` script was replaced by the CMake build
 | # | Item | Decision |
 | - | ---- | -------- |
 | B1 | ~~`configure`: detect `__MVS__`, set `-D_ALL_SOURCE`, add z/OS objects~~ | superseded: CMake, `cmake/toolchain-zos.cmake`. The macros are in `CMakeLists.txt` (FSH_ZOS) and `cmake/checks.cmake`, in both on purpose |
-| B2 | `_BPX_JOBNAME` value is `OKSH` | **done** -- `ZKSH` |
-| B3 | `PROG`/`KSHELL` name in `configure` | **done** -- the target is `zksh` |
+| B2 | `_BPX_JOBNAME` value is `OKSH` | **done** -- `FSH` |
+| B3 | `PROG`/`KSHELL` name in `configure` | **done** -- the target is `fsh` |
 | B4 | Link `-lcurses` vs z/OS terminfo/ncurses | **done** -- zopen's static `libncursesw.a` by path, found by the toolchain (P9, P24) |
 
 ### Character set
@@ -70,11 +70,11 @@ oksh `configure` script was replaced by the CMake build
 | P15 | `zos_spawn.c`, build | `setenv()` needs `_UNIX03_SOURCE` on z/OS | **done** -- macro added to build and probes. **Retracted:** `_UNIX03_SOURCE` must not be set at all; see P24 |
 | P15d | `main.c`, `checks.cmake` | `__sysconf`/`__fopen_ascii` unresolved at link, from a header, not from our code | **done** -- `confstr` probe forced off on z/OS. The forcing is right, the **reason was wrong**: `__sysconf` does not come from `confstr.c`, it comes from `libncursesw.a` (P24) |
 | P15c | `zos_spawn.c` | `setenv` undeclared without `_UNIX03_SOURCE`, and `_UNIX03_SOURCE` breaks the static link | **done** -- no `setenv` at all: `putenv()` with static strings, which needs no feature macro. Kept: it is correct on its own terms, and independent of the link failure |
-| B2 | `zos_spawn.c` | `_BPX_JOBNAME` said `OKSH` | **done** -- `ZKSH` |
+| B2 | `zos_spawn.c` | `_BPX_JOBNAME` said `OKSH` | **done** -- `FSH` |
 | P15b | build, `trap.c`, `strsignal.c` | the link failed with IEW2456E for `__fopen_ascii`, `__sysconf`, `strsignal` | **done** — `_UNIX03_SOURCE` dropped; `_POSIX_C_SOURCE=200809L` instead; `strsignal` probed with an `oksh_strsignal` fallback. **Partly retracted:** the two `__` symbols were ncurses's, not `_UNIX03_SOURCE`'s; only the `strsignal` half of this entry was ever the real cause (P24) |
 | P16 | `portable.h` | z/OS has no `st_mtim` (only `st_mtime`) and no `sig_t` typedef | **no change needed** — checks answer correctly, existing fallbacks apply |
 | P17 | `path.c`, `exec.c` | `_PATH_DEFPATH` and default `PATH` | z/OS default `/bin:/usr/bin` plus `/usr/local/bin` |
-| P18 | `exec.c` | `execve` `ENOEXEC` fallback shell | point at `zksh` or `/bin/sh`, deliberately |
+| P18 | `exec.c` | `execve` `ENOEXEC` fallback shell | point at `fsh` or `/bin/sh`, deliberately |
 | P19 | `c_ulimit.c` | `getrlimit`/`setrlimit` resource names | z/OS supports address space, file size, CPUTIME; map, document the rest |
 | P20 | `mail.c` | `MAIL`/`MAILPATH` stat checks | verify `stat()` on `/u/...` mailboxes |
 | P21 | `tty.c`, `jobs.c` | `tcsetpgrp` under a line-mode OMVS session | must degrade without error |
@@ -97,7 +97,7 @@ supposed to change link behaviour is a claim about the driver, not a
 measurement.
 
 **Measured cause.** Reproduced on the host with a four-line curses
-program, so zksh is not involved at all:
+program, so fsh is not involved at all:
 
 ```
 $ ibm-clang64 t.c -I.../include/ncursesw -I.../include
@@ -191,7 +191,7 @@ Two things this cost, recorded so they are not relearned:
 | - | ---- | ---- | ------ | ----- |
 | P28 | `CMakeLists.txt`, `cmake/checks.cmake`, `src/zos_builtins.c` | `_OPEN_SYS_FILE_EXT` added to the z/OS feature-macro stack | `struct stat`'s `st_tag` (`ft_ccsid`, `ft_txtflag`) does not exist without it. AGENTS.txt 2a says the macros are the first thing to check and lists each one with the interface it hides; this one was missing, so `zos_builtins.c` had never compiled: `no member named 'st_tag' in 'struct stat'` (5 errors). The CRTL reference's `__chattr` example states the `#define` line. Added to the target **and** the probes (2a: "add the macros to both or the probe lies") | **done**: `zos_builtins.c` compiles and links on z/OS for the first time |
 
-### P29: zksh cannot run a *tagged* script on z/OS
+### P29: fsh cannot run a *tagged* script on z/OS
 
 Found while checking that the newly-built `tests/zos.sh` passed. It
 did not, and neither did any other script in the suite — `ctest`'s
@@ -206,8 +206,8 @@ holds EBCDIC bytes (`97 99 89 95 A3 40 D6 D2 15` = `print OK`):**
 | untagged | `OK`, status 0 — **works** |
 | `IBM-1047` | `f.sh[2]: pri: not found`, status 127 — **fails** |
 
-**Why.** Reading a *tagged* file inside zksh returns **ASCII** bytes,
-even though zksh is a native EBCDIC program (`'A'` compiles to `0xC1`,
+**Why.** Reading a *tagged* file inside fsh returns **ASCII** bytes,
+even though fsh is a native EBCDIC program (`'A'` compiles to `0xC1`,
 `'\n'` to `0x15`, `' '` to `0x40`, all checked). Instrumenting
 `getsc_line()` and a bare `open()`+`read()` in `main.c` showed the same
 nine bytes for `print OK\n` (`70 72 69 6e 74 20 4f 4b 0a`) where the
@@ -235,7 +235,7 @@ Established while narrowing it:
 
 1. `setlocale(LC_ALL, "")` early in `main()`. The z/OS UNIX User's
    Guide (BPXA400, "Shell scripts") says a script's code page must
-   match the locale it runs in; zksh never calls `setlocale()`, so the
+   match the locale it runs in; fsh never calls `setlocale()`, so the
    conversion target has nothing but a default to go on.
 2. `fcntl(fd, F_CONTROL_CVT, 0)` after `shf_open()`'s `open()`, if
    step 1 is not the whole answer. That is zash's `_TAG_REDIR_IN`

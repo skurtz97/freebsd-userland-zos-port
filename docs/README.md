@@ -1,4 +1,4 @@
-# zksh documentation
+# freebsd-userland-zos-port documentation
 
 These documents describe the shell as it stands. They are the
 project's working memory: when the design changes, the document
@@ -26,14 +26,14 @@ flowchart TB
     ZB["src/zos_builtins.c<br/>tso alloc free zosclass chtag extattr"]
     TAG["src/zos/sys_zos.c.ref<br/>tagging, //DSN (not built yet)"]
     INT["history, completion, prompt<br/>libedit (phase 2)"]
-    OKSH --> ZKSH["zksh"]
-    SPAWN --> ZKSH
-    ZB --> ZKSH
-    TAG --> ZKSH
-    INT --> ZKSH
+    OKSH --> FSH["fsh"]
+    SPAWN --> FSH
+    ZB --> FSH
+    TAG --> FSH
+    INT --> FSH
 ```
 
-## What zksh is not
+## What fsh is not
 
 Not AT&T ksh88 (the UCS/DFKSH shell behind z/OS `/bin/sh`), not
 ksh93, not bash, not a POSIX-only shell. Those distinctions are

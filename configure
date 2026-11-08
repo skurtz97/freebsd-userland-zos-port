@@ -17,7 +17,7 @@
 # Run this with bash on z/OS: /bin/sh there cannot parse this file
 # ("FSUM7332 syntax error: got (" -- it has no $( )), and it is the same
 # reason docs/build.md says to run the test runner with bash. bash is
-# development tooling here, not a runtime dependency of zksh.
+# development tooling here, not a runtime dependency of fsh.
 
 set -e
 

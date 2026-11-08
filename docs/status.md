@@ -7,7 +7,7 @@ Last rewritten: 2026-11-05, when the base changed to oksh.
 ## Implemented and verified on Linux
 
 Built 2026-11-05 with clang 22, `./configure && make -j8`, and each
-item below run through `./zksh -c`:
+item below run through `./fsh -c`:
 
 | Part | State |
 | ---- | ----- |
@@ -51,19 +51,19 @@ CMake 3.31 + Ninja from zopen, ncurses 6.6 wide static, zoslib.
 | Build | `bash ./configure --zos --release && cmake --build build-zos -j4` -- 0 errors, no binder messages, no duplicate-definition warning |
 | Binary | 3,493,888 bytes, XPLINK 64-bit, static ncurses + zoslib |
 | `-c` scripts | `print`, `echo $(( ))`, `set -A`, `typeset` scoping, `[[ ]]`, `for`, command substitution, `trap` + `kill -USR1` all verified |
-| External commands | `zksh -c 'uname -a'` runs and its output reaches the parent |
+| External commands | `fsh -c 'uname -a'` runs and its output reaches the parent |
 | ctest | 4/4 -- `smoke_print`, `smoke_arith`, `smoke_array`, `smoke_typeset`. **The `regression` case fails**: see "Tagged scripts do not run" below |
 
 ### Tagged scripts do not run on z/OS (measured 2026-11-07)
 
-zksh executes a script only if the file is **untagged**. A script
+fsh executes a script only if the file is **untagged**. A script
 carrying any tag -- including the UTF-8 tag git and `chmod` leave on
 plain ASCII text -- is converted EBCDIC to ASCII on read, while the
 shell's own literals are EBCDIC, so parsing collapses:
 
 ```
-$ chtag -b  ok.sh; zksh ok.sh   -> OK, status 0
-$ chtag -tc IBM-1047 e.sh; zksh e.sh
+$ chtag -b  ok.sh; fsh ok.sh   -> OK, status 0
+$ chtag -tc IBM-1047 e.sh; fsh e.sh
 /tmp/.../e.sh[2]: pri: not found        status 127
 ```
 
@@ -75,13 +75,13 @@ Root cause and the ordered next steps: docs/port.md P29.
 
 Two facts that are not optional reading before writing a test here:
 
-- **zksh's own output is IBM-1047.** `zksh -c 'print hi' > f` leaves
+- **fsh's own output is IBM-1047.** `fsh -c 'print hi' > f` leaves
   bytes `88 89 15` in `f`, which `iconv -f IBM-1047` reads as `hi`.
   A z/OS program that writes EBCDIC is correct; do not "fix" it to
   ASCII for a test's convenience. `tests/run-c.sh` decodes instead.
 - **External commands write ASCII**, because zopen's programs convert
   to ISO8859-1 when the destination is untagged. So
-  `zksh -c 'print hi | cat' > f` puts ASCII `68 69 0A` in `f`, and a
+  `fsh -c 'print hi | cat' > f` puts ASCII `68 69 0A` in `f`, and a
   redirect that mixes builtin and external output mixes encodings.
   This is the `_TAG_REDIR_*` gap below, now measured rather than
   expected.
@@ -135,7 +135,7 @@ whatever the compiler says about `<_Ccsid.h>`, `st_tag` and `tsocmd`.
 
 ## Open items
 
-- **D1 install name** — `zksh` only, or also `sh`?
+- **D1 install name** — `fsh` only, or also `sh`?
 - **D2** pattern syntax for `${v/pat/rep}` -- **decided 2026-11-06: ksh
   glob** (see docs/language.md).
 - **D3** `alloc`/`free` scope.

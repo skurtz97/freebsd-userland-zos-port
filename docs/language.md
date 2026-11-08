@@ -1,6 +1,6 @@
-# The language: what zksh accepts
+# The language: what fsh accepts
 
-zksh's language is a closed set. It is **pdksh/oksh's ksh88 surface**,
+fsh's language is a closed set. It is **pdksh/oksh's ksh88 surface**,
 audited, with a named list of what we add and a named list of what we
 remove or refuse. A construct that is not on a list is rejected with a
 message naming this document, never guessed at.
@@ -11,7 +11,7 @@ was wrong about several things oksh already does (and one it does
 not: `${v/p/r}`). It is the authority; `direction.md` is the reason.
 
 Verified against the built shell on Linux, 2026-11-05
-(`./zksh -c ...`); each row below marked *verified* was exercised.
+(`./fsh -c ...`); each row below marked *verified* was exercised.
 
 ## Level 0 — POSIX sh (always on, verified present)
 
@@ -93,7 +93,7 @@ Consequences worth knowing, because they differ from bash:
   script has ever wanted and which would make a typo catastrophic.
 - An empty `rep` deletes the match: `${v/pat/}` has an empty
   replacement part, which is different from the `${v/pat}` form bash
-  also accepts. zksh requires the second `/` and rejects `${v/pat}`
+  also accepts. fsh requires the second `/` and rejects `${v/pat}`
   as a bad substitution, so a deletion is always written explicitly.
 - `${v/pat/rep}` on an unset variable is empty unless `set -u`, which
   is the same rule as `${v:-}` and the other substitutions.
@@ -129,7 +129,7 @@ A rejected construct produces a message with the document and an
 alternative:
 
 ```
-zksh: [[ ]] is not supported
+fsh: [[ ]] is not supported
 ```
 
 The important property is the same as before: a user can trust that a

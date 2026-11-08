@@ -1,6 +1,6 @@
 # Direction
 
-Decided 2026-11-05. This document records the shape of zksh and the
+Decided 2026-11-05. This document records the shape of fsh and the
 reason for each choice, so that a later feature request can be tested
 against a rule instead of relitigated. It is the constitution; the
 other documents are statutes.
@@ -12,13 +12,13 @@ surface (28k lines nobody has to write) and the z/OS spawn layer
 proven and documented, and zash — not FreeBSD ash — was the working
 z/OS implementation. See "Lineage" below.
 
-## What zksh is
+## What fsh is
 
-**zksh is oksh (pdksh / ksh88 lineage), ported to z/OS UNIX, with a
+**fsh is oksh (pdksh / ksh88 lineage), ported to z/OS UNIX, with a
 z/OS layer aggressive enough to be a dialect.**
 
 It is a real Korn shell. It is not bash, and it does not try to be:
-where bash adds features, zksh refuses them (see `language.md`,
+where bash adds features, fsh refuses them (see `language.md`,
 Level 3). It is *more POSIX than bash* because ksh88's POSIX core is
 precise, and *loudly non-POSIX* where z/OS demands it.
 
@@ -60,7 +60,7 @@ lines total.
 
 ## What "more POSIX than bash" means concretely
 
-| Area | bash | zksh |
+| Area | bash | fsh |
 | ---- | ---- | ---- |
 | `set -o` names | many synonyms, unknown names sometimes ignored | only documented ksh names; unknown is an error |
 | `local` vs `typeset` | two implementations | `typeset`; `local` is the same code |
@@ -90,10 +90,11 @@ pure POSIX runs the system `sh`; `compat.md` says so.
 
 ## Consequences already accepted
 
-- **The name `zksh` collides** with the AT&T ksh88-based z/OS `sh`
-  (UCS/DFKSH). No man page is installed yet: the copied oksh page was
-  removed because it described the old base, not zksh or the FreeBSD
-  userland direction. Default install is `/usr/local/bin/zksh`.
+- **The name `fsh` is new** and deliberately does not reuse the name
+  of the AT&T ksh88-based z/OS `sh` (UCS/DFKSH). No man page is
+  installed yet: the copied oksh page was removed because it described
+  the old base, not fsh or the FreeBSD userland direction. Default
+  install is `/usr/local/bin/fsh`.
 - **28,036 lines at import.** The binary is 269 KB stripped and
   starts in 0.4 ms, so the size is review cost, not runtime cost.
 - **`${v/pat/rep}` is missing** from pdksh and must be added; it is
@@ -109,7 +110,7 @@ pure POSIX runs the system `sh`; `compat.md` says so.
 
 | # | Question | State |
 | - | -------- | ----- |
-| D1 | Install as `zksh` only, or also as `sh`? | open — default: `zksh` only |
+| D1 | Install as `fsh` only, or also as `sh`? | open — default: `fsh` only |
 | D2 | `${v/pat/rep}` pattern syntax: ksh glob or POSIX bracket expressions? | **decided 2026-11-06: ksh glob** — see `language.md` Level 2 |
 | D3 | `alloc`/`free`: DSN, DD, TSO ALLOC, or all three? | open |
 | D4 | Line-mode editor: numbered history + `!!` (ksh `fc` exists), or libedit dumb-terminal profile? | open |

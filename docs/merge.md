@@ -1,6 +1,6 @@
 # The merge: what came from where
 
-One project, zksh, from three trees. This file records the provenance
+One project, freebsd-userland-zos-port, from three trees. This file records the provenance
 of every part so that "best of all the shells" is a list rather than
 a claim.
 
@@ -25,7 +25,7 @@ everything interactive.
 | Part | zash file | Why it wins over oksh's own |
 | ---- | --------- | --------------------------- |
 | `_TAG_REDIR_OUT/ERR/IN`, MVS data set redirection, IBM-1047 pipe tagging, untagged-input sniffing | `sys_zos.c` (394 lines) | oksh has none; this is measured behaviour, with `tools/cvtprobe.c` to re-measure |
-| `tso`, `chtag -p` (native via `st_tag`), `extattr`, plus `alloc`, `free`, `zosclass` written for zksh | `zos_builtins.c` (125 lines donor) | oksh has none. Adapted 2026-11-06 into `src/zos_builtins.c` (312 lines) against oksh's own structures: `command()` for the deferral, `bi_errorf()`'s existing name prefix, one argument-quoting helper. The donor's `struct fdplan`/`sys_spawn` belong to zash and were not carried over. |
+| `tso`, `chtag -p` (native via `st_tag`), `extattr`, plus `alloc`, `free`, `zosclass` written for fsh | `zos_builtins.c` (125 lines donor) | oksh has none. Adapted 2026-11-06 into `src/zos_builtins.c` (312 lines) against oksh's own structures: `command()` for the deferral, `bi_errorf()`'s existing name prefix, one argument-quoting helper. The donor's `struct fdplan`/`sys_spawn` belong to zash and were not carried over. |
 | bash-compatible `PS1`/`PS2` escapes (`\u \h \w \$ \e`, `\[ \]`) | `zprompt.c` (206 lines) | oksh's prompt has no escapes at all |
 | Quote-aware completion: commands, builtins, functions, `$var`, files; PATH mtime cache | `complete.c` (494 lines) | oksh completes nothing |
 | `HISTFILE`, `HISTSIZE`/`HISTFILESIZE`/`HISTCONTROL`, crash-safe append, SIGHUP save | `zhistory.c` (574 lines) | oksh has `fc` and a history list, not this |
@@ -56,12 +56,12 @@ prove wrong under EBCDIC (port item C1).
 | 0 | Repository structure and the CMake build. Sources moved to `src/`, names unchanged; oksh's `configure` and man pages were used as references; zash's donors staged | **done** — Linux build verified, behaviour identical to the pre-move build |
 | 1 | z/OS layer: `tso`/`chtag`/`extattr` as builtins; `sys_zos.c` redirection; MVS data sets | staged |
 | 2 | Interaction: `zhistory`/`complete`/`zprompt` on libedit; **replaces oksh's built-in editor** | not started |
-| 3 | Close out `~/src/zash`: archive the repo, point it at zksh | not started |
+| 3 | Close out `~/src/zash`: archive the repo, point it at fsh | not started |
 
 ## Rebase rule
 
 Upstream oksh file names never change, and upstream files stay in
-`src/`. Our code goes in `src/` under zksh names (`zos_builtins.c`,
+`src/`. Our code goes in `src/` under fsh names (`zos_builtins.c`,
 `zos_spawn.c`), in `tests/`, `tools/`, `cmake/`, and the not-yet-built
 donors stay in `src/zos/` as `.ref` files so the source glob never
 compiles them. A rebase against a new oksh tag is therefore the
@@ -69,7 +69,7 @@ same `git mv` in reverse plus the ledger in `docs/port.md`.
 
 ## Vendored benchmark references (2026-11-07, later cleaned up)
 
-The vendor trees existed to answer one question: how fast is zksh
+The vendor trees existed to answer one question: how fast is fsh
 against the shells it could have been built on? The 2026-11-07
 benchmark answered it. FreeBSD sh was fastest on the CPU-bound
 workloads (`arith`, `case`, `func`, `str`) and competitive on the

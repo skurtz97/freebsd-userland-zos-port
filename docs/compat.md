@@ -1,12 +1,12 @@
 # Differences from the z/OS `sh`
 
-zksh is a Korn shell, so it is *by design* not a drop-in for the
+fsh is a Korn shell, so it is *by design* not a drop-in for the
 z/OS `sh`. This file separates the differences that are the point from
 the ones that are accidents.
 
 ## This is expected and intended
 
-| Area | z/OS `sh` | zksh |
+| Area | z/OS `sh` | fsh |
 | ---- | --------- | ---- |
 | Language | POSIX + some Korn features | ksh88: `(( ))`, `set -A`, `typeset`, `[[ ]]`, `print`, `select`, coprocs |
 | Line editing | none | emacs/vi (compiled; not yet pty-tested) |
@@ -19,7 +19,7 @@ the ones that are accidents.
 
 ## This is a migration hazard
 
-| Script uses | z/OS `sh` | zksh | Action |
+| Script uses | z/OS `sh` | fsh | Action |
 | ----------- | --------- | ---- | ------ |
 | `${v/pat/rep}` | no | yes (ksh glob; see language.md) | none -- but the pattern is a glob, not a regex |
 | `$[...]` | yes | no (unless `set -o zos`) | rewrite as `$(( ))` |

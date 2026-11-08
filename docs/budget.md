@@ -1,7 +1,7 @@
 # Budget
 
 Rule 3 in [direction.md](direction.md): a feature must pay for itself.
-This file sets the price. Measured on the base commit of the zksh tree
+This file sets the price. Measured on the base commit of the fsh tree
 (2026-11-05, Linux x86-64, clang 22); re-measure `make bench` once it
 exists.
 
@@ -71,7 +71,7 @@ statically (as zash does), the number roughly triples.
 
 | Measure | Budget | At import |
 | ------- | ------ | --------- |
-| `zksh -c ':'`, best of 30 | 5 ms | 0.54 ms (2026-11-06, Release) |
+| `fsh -c ':'`, best of 30 | 5 ms | 0.54 ms (2026-11-06, Release) |
 | Peak RSS, empty profile | 3 MB | 2.33 MB |
 | Interactive start to prompt | 10 ms | unmeasured |
 
