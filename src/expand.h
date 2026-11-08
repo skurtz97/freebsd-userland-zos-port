@@ -1,108 +1,59 @@
-/*	$OpenBSD: expand.h,v 1.15 2018/01/06 16:28:58 millert Exp $	*/
-
-/*
- * Expanding strings
+/*-
+ * Copyright (c) 1991, 1993
+ *	The Regents of the University of California.  All rights reserved.
+ *
+ * This code is derived from software contributed to Berkeley by
+ * Kenneth Almquist.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ * 3. Neither the name of the University nor the names of its contributors
+ *    may be used to endorse or promote products derived from this software
+ *    without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
  */
 
-#define X_EXTRA 8 /* this many extra bytes in X string */
-
-#if 0  /* Usage */
-	XString xs;
-	char *xp;
-
-	Xinit(xs, xp, 128, ATEMP); /* allocate initial string */
-	while ((c = generate()) {
-		Xcheck(xs, xp);	/* expand string if necessary */
-		Xput(xs, xp, c); /* add character */
-	}
-	return Xclose(xs, xp);	/* resize string */
-/*
- * NOTE:
- *     The Xcheck and Xinit macros have a magic + X_EXTRA in the lengths.
- *     This is so that you can put up to X_EXTRA characters in a XString
- *     before calling Xcheck. (See yylex in lex.c)
- */
-#endif /* 0 */
-
-typedef struct XString {
-  char *end, *beg; /* end, begin of string */
-  size_t len;      /* length */
-  Area *areap;     /* area to allocate/free from */
-} XString;
-
-typedef char *XStringP;
-
-/* initialize expandable string */
-#define Xinit(xs, xp, length, area)                                            \
-  do {                                                                         \
-    (xs).len = length;                                                         \
-    (xs).areap = (area);                                                       \
-    (xs).beg = alloc((xs).len + X_EXTRA, (xs).areap);                          \
-    (xs).end = (xs).beg + (xs).len;                                            \
-    xp = (xs).beg;                                                             \
-  } while (0)
-
-/* stuff char into string */
-#define Xput(xs, xp, c) (*xp++ = (c))
-
-/* check if there are at least n bytes left */
-#define XcheckN(xs, xp, n)                                                     \
-  do {                                                                         \
-    ptrdiff_t more = ((xp) + (n)) - (xs).end;                                  \
-    if (more > 0)                                                              \
-      xp = Xcheck_grow_(&xs, xp, more);                                        \
-  } while (0)
-
-/* check for overflow, expand string */
-#define Xcheck(xs, xp) XcheckN(xs, xp, 1)
-
-/* free string */
-#define Xfree(xs, xp) afree((xs).beg, (xs).areap)
-
-/* close, return string */
-#define Xclose(xs, xp) aresize((xs).beg, ((xp) - (xs).beg), (xs).areap)
-/* begin of string */
-#define Xstring(xs, xp) ((xs).beg)
-
-#define Xnleft(xs, xp) ((xs).end - (xp)) /* may be less than 0 */
-#define Xlength(xs, xp) ((xp) - (xs).beg)
-#define Xsize(xs, xp) ((xs).end - (xs).beg)
-#define Xsavepos(xs, xp) ((xp) - (xs).beg)
-#define Xrestpos(xs, xp, n) ((xs).beg + (n))
-
-char *Xcheck_grow_(XString *xsp, char *xp, size_t more);
+struct arglist {
+	char **args;
+	int count;
+	int capacity;
+	char *smallarg[1];
+};
 
 /*
- * expandable vector of generic pointers
+ * expandarg() flags
  */
+#define EXP_SPLIT	0x1	/* perform word splitting */
+#define EXP_TILDE	0x2	/* do normal tilde expansion */
+#define	EXP_VARTILDE	0x4	/* expand tildes in an assignment */
+#define EXP_CASE	0x10	/* keeps quotes around for CASE pattern */
+#define EXP_SPLIT_LIT	0x20	/* IFS split literal text ${v+-a b c} */
+#define EXP_LIT_QUOTED	0x40	/* for EXP_SPLIT_LIT, start off quoted */
+#define EXP_GLOB	0x80	/* perform file globbing */
 
-typedef struct XPtrV {
-  void **cur;        /* next avail pointer */
-  void **beg, **end; /* begin, end of vector */
-} XPtrV;
+#define EXP_FULL	(EXP_SPLIT | EXP_GLOB)
 
-#define XPinit(x, n)                                                           \
-  do {                                                                         \
-    void **vp__;                                                               \
-    vp__ = areallocarray(NULL, n, sizeof(void *), ATEMP);                      \
-    (x).cur = (x).beg = vp__;                                                  \
-    (x).end = vp__ + n;                                                        \
-  } while (0)
 
-#define XPput(x, p)                                                            \
-  do {                                                                         \
-    if ((x).cur >= (x).end) {                                                  \
-      int n = XPsize(x);                                                       \
-      (x).beg = areallocarray((x).beg, n, 2 * sizeof(void *), ATEMP);          \
-      (x).cur = (x).beg + n;                                                   \
-      (x).end = (x).cur + n;                                                   \
-    }                                                                          \
-    *(x).cur++ = (p);                                                          \
-  } while (0)
-
-#define XPptrv(x) ((x).beg)
-#define XPsize(x) ((x).cur - (x).beg)
-
-#define XPclose(x) areallocarray((x).beg, XPsize(x), sizeof(void *), ATEMP)
-
-#define XPfree(x) afree((x).beg, ATEMP)
+void emptyarglist(struct arglist *);
+void appendarglist(struct arglist *, char *);
+union node;
+void expandarg(union node *, struct arglist *, int);
+void rmescapes(char *);
+int casematch(union node *, const char *);

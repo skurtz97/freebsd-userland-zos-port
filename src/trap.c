@@ -1,445 +1,547 @@
-/*	$OpenBSD: trap.c,v 1.33 2018/12/08 21:03:51 jca Exp $	*/
-
-/*
- * signal handling
+/*-
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * Copyright (c) 1991, 1993
+ *	The Regents of the University of California.  All rights reserved.
+ *
+ * This code is derived from software contributed to Berkeley by
+ * Kenneth Almquist.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ * 3. Neither the name of the University nor the names of its contributors
+ *    may be used to endorse or promote products derived from this software
+ *    without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
  */
 
-#include <ctype.h>
-#include <errno.h>
-/* zos: strcasecmp()/strncasecmp() are declared in <strings.h> by
- * POSIX, not <string.h>. oksh escaped this because glibc's <string.h>
- * declares them under _GNU_SOURCE and zopen's headers declared them by
- * accident; the z/OS system headers do neither. docs/port.md P25. */
-#include <strings.h>
-#include <string.h>
+#include <signal.h>
 #include <unistd.h>
+#include <stdlib.h>
 
-#include "sh.h"
-
-Trap sigtraps[NSIG + 1];
-
-static struct sigaction Sigact_ign, Sigact_trap;
-
-#ifndef HAVE_SIGNAME
-extern const char *oksh_sig2str(int);
+#include "shell.h"
+#include "main.h"
+#include "nodes.h"	/* for other headers */
+#include "eval.h"
+#include "jobs.h"
+#include "show.h"
+#include "options.h"
+#include "syntax.h"
+#include "output.h"
+#include "memalloc.h"
+#include "error.h"
+#include "trap.h"
+#include "mystring.h"
+#include "builtins.h"
+#ifndef NO_HISTORY
+#include "myhistedit.h"
 #endif
 
-void
-inittraps(void)
+
+/*
+ * Sigmode records the current value of the signal handlers for the various
+ * modes.  A value of zero means that the current handler is not known.
+ * S_HARD_IGN indicates that the signal was ignored on entry to the shell,
+ */
+
+#define S_DFL 1			/* default signal handling (SIG_DFL) */
+#define S_CATCH 2		/* signal is caught */
+#define S_IGN 3			/* signal is ignored (SIG_IGN) */
+#define S_HARD_IGN 4		/* signal is ignored permanently */
+#define S_RESET 5		/* temporary - to reset a hard ignored sig */
+
+
+static char sigmode[NSIG];	/* current value of signal */
+volatile sig_atomic_t pendingsig;	/* indicates some signal received */
+volatile sig_atomic_t pendingsig_waitcmd;	/* indicates wait builtin should be interrupted */
+static int in_dotrap;			/* do we execute in a trap handler? */
+static char *volatile trap[NSIG];	/* trap handler commands */
+static volatile sig_atomic_t gotsig[NSIG];
+				/* indicates specified signal received */
+static int ignore_sigchld;	/* Used while handling SIGCHLD traps. */
+static int last_trapsig;
+
+static int exiting;		/* exitshell() has been called */
+static int exiting_exitstatus;	/* value passed to exitshell() */
+
+static int getsigaction(int, sig_t *);
+
+
+/*
+ * Map a string to a signal number.
+ *
+ * Note: the signal number may exceed NSIG.
+ */
+static int
+sigstring_to_signum(char *sig)
 {
-	int	i;
 
-	/* Populate sigtraps based on sys_signame and sys_siglist. */
-	for (i = 0; i <= NSIG; i++) {
-		sigtraps[i].signal = i;
-		if (i == SIGERR_) {
-			sigtraps[i].name = "ERR";
-			sigtraps[i].mess = "Error handler";
-		} else {
-#ifdef HAVE_SIGNAME
-			sigtraps[i].name = sys_signame[i];
-#else
-			sigtraps[i].name = oksh_sig2str(i);
-#endif
-#if defined(HAVE_SIGLIST) && !defined(__linux__)
-			sigtraps[i].mess = sys_siglist[i];
-#else
-			static char *mess[NSIG + 1] = { NULL };
-			if (!mess[i]) {
-				const char *sigmsg = strsignal(i);
-				if (sigmsg == NULL)
-					sigmsg = "Unknown signal";
-				mess[i] = strdup(sigmsg);
-			}
-			sigtraps[i].mess = mess[i];
-#endif
-		}
-	}
-	sigtraps[SIGEXIT_].name = "EXIT";	/* our name for signal 0 */
+	if (is_number(sig)) {
+		int signo;
 
-	sigemptyset(&Sigact_ign.sa_mask);
-	Sigact_ign.sa_flags = 0; /* interruptible */
-	Sigact_ign.sa_handler = SIG_IGN;
-	Sigact_trap = Sigact_ign;
-	Sigact_trap.sa_handler = trapsig;
-
-	sigtraps[SIGINT].flags |= TF_DFL_INTR | TF_TTY_INTR;
-	sigtraps[SIGQUIT].flags |= TF_DFL_INTR | TF_TTY_INTR;
-	sigtraps[SIGTERM].flags |= TF_DFL_INTR;/* not fatal for interactive */
-	sigtraps[SIGHUP].flags |= TF_FATAL;
-	sigtraps[SIGCHLD].flags |= TF_SHELL_USES;
-
-	/* these are always caught so we can clean up any temporary files. */
-	setsig(&sigtraps[SIGINT], trapsig, SS_RESTORE_ORIG);
-	setsig(&sigtraps[SIGQUIT], trapsig, SS_RESTORE_ORIG);
-	setsig(&sigtraps[SIGTERM], trapsig, SS_RESTORE_ORIG);
-	setsig(&sigtraps[SIGHUP], trapsig, SS_RESTORE_ORIG);
-}
-
-static void alarm_catcher(int sig);
-
-void
-alarm_init(void)
-{
-	sigtraps[SIGALRM].flags |= TF_SHELL_USES;
-	setsig(&sigtraps[SIGALRM], alarm_catcher,
-		SS_RESTORE_ORIG|SS_FORCE|SS_SHTRAP);
-}
-
-static void
-alarm_catcher(int sig)
-{
-	int errno_ = errno;
-
-	if (ksh_tmout_state == TMOUT_READING) {
-		int left = alarm(0);
-
-		if (left == 0) {
-			ksh_tmout_state = TMOUT_LEAVING;
-			intrsig = 1;
-		} else
-			alarm(left);
-	}
-	errno = errno_;
-}
-
-Trap *
-gettrap(const char *name, int igncase)
-{
-	int i;
-	Trap *p;
-
-	if (digit(*name)) {
+		signo = atoi(sig);
+		return ((signo >= 0 && signo < NSIG) ? signo : (-1));
+	} else if (strcasecmp(sig, "EXIT") == 0) {
+		return (0);
+	} else {
 		int n;
 
-		if (getn(name, &n) && 0 <= n && n < NSIG)
-			return &sigtraps[n];
-		return NULL;
+		if (strncasecmp(sig, "SIG", 3) == 0)
+			sig += 3;
+		for (n = 1; n < sys_nsig; n++)
+			if (sys_signame[n] &&
+			    strcasecmp(sys_signame[n], sig) == 0)
+				return (n);
 	}
-
-	if (igncase && strncasecmp(name, "SIG", 3) == 0)
-		name += 3;
-	if (!igncase && strncmp(name, "SIG", 3) == 0)
-		name += 3;
-
-	for (p = sigtraps, i = NSIG+1; --i >= 0; p++)
-		if (p->name) {
-			if (igncase && strcasecmp(p->name, name) == 0)
-				return p;
-			if (!igncase && strcmp(p->name, name) == 0)
-				return p;
-		}
-	return NULL;
+	return (-1);
 }
+
 
 /*
- * trap signal handler
+ * Print a list of valid signal names.
  */
-void
-trapsig(int i)
+static void
+printsignals(void)
 {
-	Trap *p = &sigtraps[i];
-	int errno_ = errno;
+	int n, outlen;
 
-	trap = p->set = 1;
-	if (p->flags & TF_DFL_INTR)
-		intrsig = 1;
-	if ((p->flags & TF_FATAL) && !p->trap) {
-		fatal_trap = 1;
-		intrsig = 1;
+	outlen = 0;
+	for (n = 1; n < sys_nsig; n++) {
+		if (sys_signame[n]) {
+			out1fmt("%s", sys_signame[n]);
+			outlen += strlen(sys_signame[n]);
+		} else {
+			out1fmt("%d", n);
+			outlen += 3;	/* good enough */
+		}
+		++outlen;
+		if (outlen > 71 || n == sys_nsig - 1) {
+			out1str("\n");
+			outlen = 0;
+		} else {
+			out1c(' ');
+		}
 	}
-	if (p->shtrap)
-		(*p->shtrap)(i);
-	errno = errno_;
 }
 
-/* called when we want to allow the user to ^C out of something - won't
- * work if user has trapped SIGINT.
- */
-void
-intrcheck(void)
-{
-	if (intrsig)
-		runtraps(TF_DFL_INTR|TF_FATAL);
-}
-
-/* called after EINTR to check if a signal with normally causes process
- * termination has been received.
- */
-int
-fatal_trap_check(void)
-{
-	int i;
-	Trap *p;
-
-	/* todo: should check if signal is fatal, not the TF_DFL_INTR flag */
-	for (p = sigtraps, i = NSIG+1; --i >= 0; p++)
-		if (p->set && (p->flags & (TF_DFL_INTR|TF_FATAL)))
-			/* return value is used as an exit code */
-			return 128 + p->signal;
-	return 0;
-}
-
-/* Returns the signal number of any pending traps: ie, a signal which has
- * occurred for which a trap has been set or for which the TF_DFL_INTR flag
- * is set.
- */
-int
-trap_pending(void)
-{
-	int i;
-	Trap *p;
-
-	for (p = sigtraps, i = NSIG+1; --i >= 0; p++)
-		if (p->set && ((p->trap && p->trap[0]) ||
-		    ((p->flags & (TF_DFL_INTR|TF_FATAL)) && !p->trap)))
-			return p->signal;
-	return 0;
-}
 
 /*
- * run any pending traps.  If intr is set, only run traps that
- * can interrupt commands.
- */
-void
-runtraps(int flag)
-{
-	int i;
-	Trap *p;
-
-	if (ksh_tmout_state == TMOUT_LEAVING) {
-		ksh_tmout_state = TMOUT_EXECUTING;
-		warningf(false, "timed out waiting for input");
-		unwind(LEXIT);
-	} else
-		/* XXX: this means the alarm will have no effect if a trap
-		 * is caught after the alarm() was started...not good.
-		 */
-		ksh_tmout_state = TMOUT_EXECUTING;
-	if (!flag)
-		trap = 0;
-	if (flag & TF_DFL_INTR)
-		intrsig = 0;
-	if (flag & TF_FATAL)
-		fatal_trap = 0;
-	for (p = sigtraps, i = NSIG+1; --i >= 0; p++)
-		if (p->set && (!flag ||
-		    ((p->flags & flag) && p->trap == NULL)))
-			runtrap(p);
-}
-
-void
-runtrap(Trap *p)
-{
-	int	i = p->signal;
-	char	*trapstr = p->trap;
-	int	oexstat;
-	int	old_changed = 0;
-
-	p->set = 0;
-	if (trapstr == NULL) { /* SIG_DFL */
-		if (p->flags & TF_FATAL) {
-			/* eg, SIGHUP */
-			exstat = 128 + i;
-			unwind(LLEAVE);
-		}
-		if (p->flags & TF_DFL_INTR) {
-			/* eg, SIGINT, SIGQUIT, SIGTERM, etc. */
-			exstat = 128 + i;
-			unwind(LINTR);
-		}
-		return;
-	}
-	if (trapstr[0] == '\0') /* SIG_IGN */
-		return;
-	if (i == SIGEXIT_ || i == SIGERR_) {	/* avoid recursion on these */
-		old_changed = p->flags & TF_CHANGED;
-		p->flags &= ~TF_CHANGED;
-		p->trap = NULL;
-	}
-	oexstat = exstat;
-	/* Note: trapstr is fully parsed before anything is executed, thus
-	 * no problem with afree(p->trap) in settrap() while still in use.
-	 */
-	command(trapstr, current_lineno);
-	exstat = oexstat;
-	if (i == SIGEXIT_ || i == SIGERR_) {
-		if (p->flags & TF_CHANGED)
-			/* don't clear TF_CHANGED */
-			afree(trapstr, APERM);
-		else
-			p->trap = trapstr;
-		p->flags |= old_changed;
-	}
-}
-
-/* clear pending traps and reset user's trap handlers; used after fork(2) */
-void
-cleartraps(void)
-{
-	int i;
-	Trap *p;
-
-	trap = 0;
-	intrsig = 0;
-	fatal_trap = 0;
-	for (i = NSIG+1, p = sigtraps; --i >= 0; p++) {
-		p->set = 0;
-		if ((p->flags & TF_USER_SET) && (p->trap && p->trap[0]))
-			settrap(p, NULL);
-	}
-}
-
-/* restore signals just before an exec(2) */
-void
-restoresigs(void)
-{
-	int i;
-	Trap *p;
-
-	for (i = NSIG+1, p = sigtraps; --i >= 0; p++)
-		if (p->flags & (TF_EXEC_IGN|TF_EXEC_DFL))
-			setsig(p, (p->flags & TF_EXEC_IGN) ? SIG_IGN : SIG_DFL,
-			    SS_RESTORE_CURR|SS_FORCE);
-}
-
-void
-settrap(Trap *p, char *s)
-{
-	sig_t f;
-
-	afree(p->trap, APERM);
-	p->trap = str_save(s, APERM); /* handles s == 0 */
-	p->flags |= TF_CHANGED;
-	f = !s ? SIG_DFL : s[0] ? trapsig : SIG_IGN;
-
-	p->flags |= TF_USER_SET;
-	if ((p->flags & (TF_DFL_INTR|TF_FATAL)) && f == SIG_DFL)
-		f = trapsig;
-	else if (p->flags & TF_SHELL_USES) {
-		if (!(p->flags & TF_ORIG_IGN) || Flag(FTALKING)) {
-			/* do what user wants at exec time */
-			p->flags &= ~(TF_EXEC_IGN|TF_EXEC_DFL);
-			if (f == SIG_IGN)
-				p->flags |= TF_EXEC_IGN;
-			else
-				p->flags |= TF_EXEC_DFL;
-		}
-
-		/* assumes handler already set to what shell wants it
-		 * (normally trapsig, but could be j_sigchld() or SIG_IGN)
-		 */
-		return;
-	}
-
-	/* todo: should we let user know signal is ignored? how? */
-	setsig(p, f, SS_RESTORE_CURR|SS_USER);
-}
-
-/* Called by c_print() when writing to a co-process to ensure SIGPIPE won't
- * kill shell (unless user catches it and exits)
+ * The trap builtin.
  */
 int
-block_pipe(void)
+trapcmd(int argc __unused, char **argv)
 {
-	int restore_dfl = 0;
-	Trap *p = &sigtraps[SIGPIPE];
+	char *action;
+	int signo;
+	int errors = 0;
+	int i;
 
-	if (!(p->flags & (TF_ORIG_IGN|TF_ORIG_DFL))) {
-		setsig(p, SIG_IGN, SS_RESTORE_CURR);
-		if (p->flags & TF_ORIG_DFL)
-			restore_dfl = 1;
-	} else if (p->cursig == SIG_DFL) {
-		setsig(p, SIG_IGN, SS_RESTORE_CURR);
-		restore_dfl = 1; /* restore to SIG_DFL */
+	while ((i = nextopt("l")) != '\0') {
+		switch (i) {
+		case 'l':
+			printsignals();
+			return (0);
+		}
 	}
-	return restore_dfl;
-}
+	argv = argptr;
 
-/* Called by c_print() to undo whatever block_pipe() did */
-void
-restore_pipe(int restore_dfl)
-{
-	if (restore_dfl)
-		setsig(&sigtraps[SIGPIPE], SIG_DFL, SS_RESTORE_CURR);
-}
-
-/* Set action for a signal.  Action may not be set if original
- * action was SIG_IGN, depending on the value of flags and
- * FTALKING.
- */
-int
-setsig(Trap *p, sig_t f, int flags)
-{
-	struct sigaction sigact;
-
-	if (p->signal == SIGEXIT_ || p->signal == SIGERR_)
-		return 1;
-
-	/* First time setting this signal?  If so, get and note the current
-	 * setting.
-	 */
-	if (!(p->flags & (TF_ORIG_IGN|TF_ORIG_DFL))) {
-		sigaction(p->signal, &Sigact_ign, &sigact);
-		p->flags |= sigact.sa_handler == SIG_IGN ?
-		    TF_ORIG_IGN : TF_ORIG_DFL;
-		p->cursig = SIG_IGN;
-	}
-
-	/* Generally, an ignored signal stays ignored, except if
-	 *	- the user of an interactive shell wants to change it
-	 *	- the shell wants for force a change
-	 */
-	if ((p->flags & TF_ORIG_IGN) && !(flags & SS_FORCE) &&
-	    (!(flags & SS_USER) || !Flag(FTALKING)))
+	if (*argv == NULL) {
+		for (signo = 0 ; signo < sys_nsig ; signo++) {
+			if (signo < NSIG && trap[signo] != NULL) {
+				out1str("trap -- ");
+				out1qstr(trap[signo]);
+				if (signo == 0) {
+					out1str(" EXIT\n");
+				} else if (sys_signame[signo]) {
+					out1fmt(" %s\n", sys_signame[signo]);
+				} else {
+					out1fmt(" %d\n", signo);
+				}
+			}
+		}
 		return 0;
+	}
+	action = NULL;
+	if (*argv && !is_number(*argv)) {
+		if (strcmp(*argv, "-") == 0)
+			argv++;
+		else {
+			action = *argv;
+			argv++;
+		}
+	}
+	for (; *argv; argv++) {
+		if ((signo = sigstring_to_signum(*argv)) == -1) {
+			warning("bad signal %s", *argv);
+			errors = 1;
+			continue;
+		}
+		INTOFF;
+		if (action)
+			action = savestr(action);
+		if (trap[signo])
+			ckfree(trap[signo]);
+		trap[signo] = action;
+		if (signo != 0)
+			setsignal(signo);
+		INTON;
+	}
+	return errors;
+}
 
-	setexecsig(p, flags & SS_RESTORE_MASK);
 
-	/* This is here 'cause there should be a way of clearing shtraps, but
-	 * don't know if this is a sane way of doing it.  At the moment,
-	 * all users of shtrap are lifetime users (SIGCHLD, SIGALRM, SIGWINCH).
-	 */
-	if (!(flags & SS_USER))
-		p->shtrap = NULL;
-	if (flags & SS_SHTRAP) {
-		p->shtrap = f;
-		f = trapsig;
+/*
+ * Clear traps on a fork.
+ */
+void
+clear_traps(void)
+{
+	char *volatile *tp;
+
+	for (tp = trap ; tp <= &trap[NSIG - 1] ; tp++) {
+		if (*tp && **tp) {	/* trap not NULL or SIG_IGN */
+			INTOFF;
+			ckfree(*tp);
+			*tp = NULL;
+			if (tp != &trap[0])
+				setsignal(tp - trap);
+			INTON;
+		}
+	}
+}
+
+
+/*
+ * Check if we have any traps enabled.
+ */
+int
+have_traps(void)
+{
+	char *volatile *tp;
+
+	for (tp = trap ; tp <= &trap[NSIG - 1] ; tp++) {
+		if (*tp && **tp)	/* trap not NULL or SIG_IGN */
+			return 1;
+	}
+	return 0;
+}
+
+/*
+ * Set the signal handler for the specified signal.  The routine figures
+ * out what it should be set to.
+ */
+void
+setsignal(int signo)
+{
+	int action;
+	sig_t sigact = SIG_DFL;
+	struct sigaction sa;
+	char *t;
+
+	if ((t = trap[signo]) == NULL)
+		action = S_DFL;
+	else if (*t != '\0')
+		action = S_CATCH;
+	else
+		action = S_IGN;
+	if (action == S_DFL) {
+		switch (signo) {
+		case SIGINT:
+			action = S_CATCH;
+			break;
+		case SIGQUIT:
+#ifdef DEBUG
+			if (debug)
+				break;
+#endif
+			action = S_CATCH;
+			break;
+		case SIGTERM:
+			if (rootshell && iflag)
+				action = S_IGN;
+			break;
+#if JOBS
+		case SIGTSTP:
+		case SIGTTOU:
+			if (rootshell && mflag)
+				action = S_IGN;
+			break;
+#endif
+		}
 	}
 
-	if (p->cursig != f) {
-		p->cursig = f;
-		sigemptyset(&sigact.sa_mask);
-		sigact.sa_flags = 0 /* interruptible */;
-		sigact.sa_handler = f;
-		sigaction(p->signal, &sigact, NULL);
+	t = &sigmode[signo];
+	if (*t == 0) {
+		/*
+		 * current setting unknown
+		 */
+		if (!getsigaction(signo, &sigact)) {
+			/*
+			 * Pretend it worked; maybe we should give a warning
+			 * here, but other shells don't. We don't alter
+			 * sigmode, so that we retry every time.
+			 */
+			return;
+		}
+		if (sigact == SIG_IGN) {
+			if (mflag && (signo == SIGTSTP ||
+			     signo == SIGTTIN || signo == SIGTTOU)) {
+				*t = S_IGN;	/* don't hard ignore these */
+			} else
+				*t = S_HARD_IGN;
+		} else {
+			*t = S_RESET;	/* force to be set */
+		}
 	}
+	if (*t == S_HARD_IGN || *t == action)
+		return;
+	switch (action) {
+		case S_DFL:	sigact = SIG_DFL;	break;
+		case S_CATCH:  	sigact = onsig;		break;
+		case S_IGN:	sigact = SIG_IGN;	break;
+	}
+	*t = action;
+	sa.sa_handler = sigact;
+	sa.sa_flags = 0;
+	sigemptyset(&sa.sa_mask);
+	sigaction(signo, &sa, NULL);
+}
 
+
+/*
+ * Return the current setting for sig w/o changing it.
+ */
+static int
+getsigaction(int signo, sig_t *sigact)
+{
+	struct sigaction sa;
+
+	if (sigaction(signo, (struct sigaction *)0, &sa) == -1)
+		return 0;
+	*sigact = (sig_t) sa.sa_handler;
 	return 1;
 }
 
-/* control what signal is set to before an exec() */
-void
-setexecsig(Trap *p, int restore)
-{
-	/* XXX debugging */
-	if (!(p->flags & (TF_ORIG_IGN|TF_ORIG_DFL)))
-		internal_errorf("%s: unset signal %d(%s)",
-		    __func__, p->signal, p->name);
 
-	/* restore original value for exec'd kids */
-	p->flags &= ~(TF_EXEC_IGN|TF_EXEC_DFL);
-	switch (restore & SS_RESTORE_MASK) {
-	case SS_RESTORE_CURR: /* leave things as they currently are */
-		break;
-	case SS_RESTORE_ORIG:
-		p->flags |= p->flags & TF_ORIG_IGN ? TF_EXEC_IGN : TF_EXEC_DFL;
-		break;
-	case SS_RESTORE_DFL:
-		p->flags |= TF_EXEC_DFL;
-		break;
-	case SS_RESTORE_IGN:
-		p->flags |= TF_EXEC_IGN;
-		break;
+/*
+ * Ignore a signal.
+ */
+void
+ignoresig(int signo)
+{
+
+	if (sigmode[signo] == 0)
+		setsignal(signo);
+	if (sigmode[signo] != S_IGN && sigmode[signo] != S_HARD_IGN) {
+		signal(signo, SIG_IGN);
+		sigmode[signo] = S_IGN;
 	}
+}
+
+
+int
+issigchldtrapped(void)
+{
+
+	return (trap[SIGCHLD] != NULL && *trap[SIGCHLD] != '\0');
+}
+
+
+/*
+ * Signal handler.
+ */
+void
+onsig(int signo)
+{
+
+	if (signo == SIGINT && trap[SIGINT] == NULL) {
+		if (suppressint)
+			SET_PENDING_INT;
+		else
+			onint();
+		return;
+	}
+
+	/* If we are currently in a wait builtin, prepare to break it */
+	if (signo == SIGINT || signo == SIGQUIT)
+		pendingsig_waitcmd = signo;
+
+	if (trap[signo] != NULL && trap[signo][0] != '\0' &&
+	    (signo != SIGCHLD || !ignore_sigchld)) {
+		gotsig[signo] = 1;
+		pendingsig = signo;
+		pendingsig_waitcmd = signo;
+	}
+}
+
+
+/*
+ * Called to execute a trap.  Perhaps we should avoid entering new trap
+ * handlers while we are executing a trap handler.
+ */
+void
+dotrap(void)
+{
+	struct stackmark smark;
+	int i;
+	int savestatus, prev_evalskip, prev_skipcount;
+
+	in_dotrap++;
+	for (;;) {
+		pendingsig = 0;
+		pendingsig_waitcmd = 0;
+		for (i = 1; i < NSIG; i++) {
+			if (gotsig[i]) {
+				gotsig[i] = 0;
+				if (trap[i]) {
+					/*
+					 * Ignore SIGCHLD to avoid infinite
+					 * recursion if the trap action does
+					 * a fork.
+					 */
+					if (i == SIGCHLD)
+						ignore_sigchld++;
+
+					/*
+					 * Backup current evalskip
+					 * state and reset it before
+					 * executing a trap, so that the
+					 * trap is not disturbed by an
+					 * ongoing break/continue/return
+					 * statement.
+					 */
+					prev_evalskip  = evalskip;
+					prev_skipcount = skipcount;
+					evalskip = 0;
+
+					last_trapsig = i;
+					savestatus = exitstatus;
+					setstackmark(&smark);
+					evalstring(stsavestr(trap[i]), 0);
+					popstackmark(&smark);
+
+					/*
+					 * If such a command was not
+					 * already in progress, allow a
+					 * break/continue/return in the
+					 * trap action to have an effect
+					 * outside of it.
+					 */
+					if (evalskip == 0 ||
+					    prev_evalskip != 0) {
+						evalskip  = prev_evalskip;
+						skipcount = prev_skipcount;
+						exitstatus = savestatus;
+					}
+
+					if (i == SIGCHLD)
+						ignore_sigchld--;
+				}
+				break;
+			}
+		}
+		if (i >= NSIG)
+			break;
+	}
+	in_dotrap--;
+}
+
+
+void
+trap_init(void)
+{
+	setsignal(SIGINT);
+	setsignal(SIGQUIT);
+}
+
+
+/*
+ * Controls whether the shell is interactive or not based on iflag.
+ */
+void
+setinteractive(void)
+{
+	setsignal(SIGTERM);
+}
+
+
+/*
+ * Called to exit the shell.
+ */
+void
+exitshell(int status)
+{
+	TRACE(("exitshell(%d) pid=%d\n", status, getpid()));
+	exiting = 1;
+	exiting_exitstatus = status;
+	exitshell_savedstatus();
+}
+
+void
+exitshell_savedstatus(void)
+{
+	struct jmploc loc1, loc2;
+	char *p;
+	int sig = 0;
+	sigset_t sigs;
+
+	if (!exiting) {
+		if (in_dotrap && last_trapsig) {
+			sig = last_trapsig;
+			exiting_exitstatus = sig + 128;
+		} else
+			exiting_exitstatus = oexitstatus;
+	}
+	exitstatus = oexitstatus = exiting_exitstatus;
+	if (!setjmp(loc1.loc)) {
+		handler = &loc1;
+		if ((p = trap[0]) != NULL && *p != '\0') {
+			/*
+			 * Reset evalskip, or the trap on EXIT could be
+			 * interrupted if the last command was a "return".
+			 */
+			evalskip = 0;
+			trap[0] = NULL;
+			FORCEINTON;
+			evalstring(p, 0);
+		}
+	}
+	if (!setjmp(loc2.loc)) {
+		handler = &loc2;		/* probably unnecessary */
+		FORCEINTON;
+		flushall();
+#if JOBS
+		setjobctl(0);
+#endif
+#ifndef NO_HISTORY
+		histsave();
+#endif
+	}
+	if (sig != 0 && sig != SIGSTOP && sig != SIGTSTP && sig != SIGTTIN &&
+	    sig != SIGTTOU) {
+		signal(sig, SIG_DFL);
+		sigemptyset(&sigs);
+		sigaddset(&sigs, sig);
+		sigprocmask(SIG_UNBLOCK, &sigs, NULL);
+		kill(getpid(), sig);
+		/* If the default action is to ignore, fall back to _exit(). */
+	}
+	_exit(exiting_exitstatus);
 }

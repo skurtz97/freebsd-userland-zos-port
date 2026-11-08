@@ -1,1561 +1,1367 @@
-/*	$OpenBSD: eval.c,v 1.67 2023/05/24 14:20:33 millert Exp $	*/
-
-/*
- * Expansion - quoting, separation, substitution, globbing
+/*-
+ * Copyright (c) 1993
+ *	The Regents of the University of California.  All rights reserved.
+ *
+ * This code is derived from software contributed to Berkeley by
+ * Kenneth Almquist.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ * 3. Neither the name of the University nor the names of its contributors
+ *    may be used to endorse or promote products derived from this software
+ *    without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
  */
 
-#include <sys/stat.h>
-
-#include <ctype.h>
-#include <dirent.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <pwd.h>
-#include <stdio.h>
-#include <string.h>
+#include <paths.h>
+#include <signal.h>
+#include <stdlib.h>
 #include <unistd.h>
-
-#include "sh.h"
-
-/*
- * string expansion
- *
- * first pass: quoting, IFS separation, ~, ${}, $() and $(()) substitution.
- * second pass: alternation ({,}), filename expansion (*?[]).
- */
-
-/* expansion generator state */
-typedef struct Expand {
-  /* int  type; */ /* see expand() */
-  const char *str; /* string */
-  union {
-    const char **strv; /* string[] */
-    struct shf *shf;   /* file */
-  } u;                 /* source */
-  struct tbl *var;     /* variable in ${var..} */
-  short split;         /* split "$@" / call waitlast $() */
-} Expand;
-
-#define XBASE 0    /* scanning original */
-#define XSUB 1     /* expanding ${} string */
-#define XARGSEP 2  /* ifs0 between "$*" */
-#define XARG 3     /* expanding $*, $@ */
-#define XCOM 4     /* expanding $() */
-#define XNULLSUB 5 /* "$@" when $# is 0 (don't generate word) */
-#define XSUBMID 6  /* middle of expanding ${} */
-
-/* Modifiers for the ${v/pat/rep} family, held in Expand.stype beside the
- * '/' operator (docs/language.md, "the four forms").  They are above the
- * 0x7f operator mask, so `stype & 0x7f' is still the operator.
- */
-#define REP_ALL 0x100  /* ${v//pat/rep}: every match, not the first */
-#define REP_HEAD 0x200 /* ${v/#pat/rep}: only at the start */
-#define REP_TAIL 0x400 /* ${v/%pat/rep}: only at the end */
-
-/* States used for field splitting */
-#define IFS_WORD 0  /* word has chars (or quotes) */
-#define IFS_WS 1    /* have seen IFS white-space */
-#define IFS_NWS 2   /* have seen IFS non-white-space */
-#define IFS_IWS 3   /* beginning of word, ignore IFS white-space */
-#define IFS_QUOTE 4 /* beg.w/quote, becomes IFS_WORD unless "$@" */
-
-static int varsub(Expand *, char *, char *, int *, int *);
-static int comsub(Expand *, char *);
-static char *trimsub(char *, char *, int);
-static char *replacesub(char *, char *, char *, int);
-static void glob(char *, XPtrV *, int);
-static void globit(XString *, char **, char *, XPtrV *, int);
-static char *maybe_expand_tilde(char *, XString *, char **, int);
-static char *tilde(char *);
-static char *homedir(char *);
-static void alt_expand(XPtrV *, char *, char *, char *, int);
-
-static struct tbl *varcpy(struct tbl *);
-
-/* compile and expand word */
-char *substitute(const char *cp, int f) {
-  struct source *s, *sold;
-
-  if (disable_subst)
-    return str_save(cp, ATEMP);
-
-  sold = source;
-  s = pushs(SWSTR, ATEMP);
-  s->start = s->str = cp;
-  source = s;
-  if (yylex(ONEWORD) != LWORD)
-    internal_errorf("substitute");
-  source = sold;
-  afree(s, ATEMP);
-  return evalstr(yylval.cp, f);
-}
+#include <sys/resource.h>
+#include <errno.h>
 
 /*
- * expand arg-list
+ * Evaluate a command.
  */
-char **eval(char **ap, int f) {
-  XPtrV w;
 
-  if (*ap == NULL)
-    return ap;
-  XPinit(w, 32);
-  XPput(w, NULL); /* space for shell name */
-  while (*ap != NULL)
-    expand(*ap++, &w, f);
-  XPput(w, NULL);
-  return (char **)XPclose(w) + 1;
-}
+#include "shell.h"
+#include "nodes.h"
+#include "syntax.h"
+#include "expand.h"
+#include "parser.h"
+#include "jobs.h"
+#include "eval.h"
+#include "builtins.h"
+#include "options.h"
+#include "exec.h"
+#include "redir.h"
+#include "input.h"
+#include "output.h"
+#include "trap.h"
+#include "var.h"
+#include "memalloc.h"
+#include "error.h"
+#include "show.h"
+#include "mystring.h"
+#ifndef NO_HISTORY
+#include "myhistedit.h"
+#endif
+
+
+int evalskip;			/* set if we are skipping commands */
+int skipcount;			/* number of levels to skip */
+static int loopnest;		/* current loop nesting level */
+int funcnest;			/* depth of function calls */
+static int builtin_flags;	/* evalcommand flags for builtins */
+
+
+char *commandname;
+struct arglist *cmdenviron;
+int exitstatus;			/* exit status of last command */
+int oexitstatus;		/* saved exit status */
+
+
+static void evalloop(union node *, int);
+static void evalfor(union node *, int);
+static union node *evalcase(union node *);
+static void evalsubshell(union node *, int);
+static void evalredir(union node *, int);
+static void exphere(union node *, struct arglist *);
+static void expredir(union node *);
+static void evalpipe(union node *);
+static int is_valid_fast_cmdsubst(union node *n);
+static void evalcommand(union node *, int, struct backcmd *);
+static void prehash(union node *);
+
 
 /*
- * expand string
+ * Called to reset things after an exception.
  */
-char *evalstr(char *cp, int f) {
-  XPtrV w;
 
-  XPinit(w, 1);
-  expand(cp, &w, f);
-  cp = (XPsize(w) == 0) ? null : (char *)*XPptrv(w);
-  XPfree(w);
-  return cp;
-}
-
-/*
- * expand string - return only one component
- * used from iosetup to expand redirection files
- */
-char *evalonestr(char *cp, int f) {
-  XPtrV w;
-
-  XPinit(w, 1);
-  expand(cp, &w, f);
-  switch (XPsize(w)) {
-  case 0:
-    cp = null;
-    break;
-  case 1:
-    cp = (char *)*XPptrv(w);
-    break;
-  default:
-    cp = evalstr(cp, f & ~DOGLOB);
-    break;
-  }
-  XPfree(w);
-  return cp;
-}
-
-/* for nested substitution: ${var:=$var2} */
-typedef struct SubType {
-  short stype;          /* [=+-?%#] action after expanded word */
-  short base;           /* begin position of expanded word */
-  short f;              /* saved value of f (DOPAT, etc) */
-  struct tbl *var;      /* variable for ${var..} */
-  short quote;          /* saved value of quote (for ${..[%#]..}) */
-  struct SubType *prev; /* old type */
-  struct SubType *next; /* poped type (to avoid re-allocating) */
-} SubType;
-
-void expand(char *cp,  /* input word */
-            XPtrV *wp, /* output words */
-            int f)     /* DO* flags */
+void
+reseteval(void)
 {
-  int c = 0;
-  int type;      /* expansion type */
-  int quote = 0; /* quoted */
-  XString ds;    /* destination string */
-  char *dp, *sp; /* dest., source */
-  int fdo, word; /* second pass flags; have word */
-  int doblank;   /* field splitting of parameter/command subst */
-  Expand x = {   /* expansion variables */
-              NULL,
-              {NULL},
-              NULL,
-              0};
-  SubType st_head, *st;
-  int newlines = 0; /* For trailing newlines in COMSUB */
-  int saw_eq, tilde_ok;
-  int make_magic;
-  size_t len;
+	evalskip = 0;
+	loopnest = 0;
+}
 
-  if (cp == NULL)
-    internal_errorf("expand(NULL)");
-  /* for alias, readonly, set, typeset commands */
-  if ((f & DOVACHECK) && is_wdvarassign(cp)) {
-    f &= ~(DOVACHECK | DOBLANK | DOGLOB | DOTILDE);
-    f |= DOASNTILDE;
-  }
-  if (Flag(FNOGLOB))
-    f &= ~DOGLOB;
-  if (Flag(FMARKDIRS))
-    f |= DOMARKDIRS;
-  if (Flag(FBRACEEXPAND) && (f & DOGLOB))
-    f |= DOBRACE_;
 
-  Xinit(ds, dp, 128, ATEMP); /* init dest. string */
-  type = XBASE;
-  sp = cp;
-  fdo = 0;
-  saw_eq = 0;
-  tilde_ok = (f & (DOTILDE | DOASNTILDE)) ? 1 : 0; /* must be 1/0 */
-  doblank = 0;
-  make_magic = 0;
-  word = (f & DOBLANK) ? IFS_WS : IFS_WORD;
+/*
+ * The eval command.
+ */
 
-  memset(&st_head, 0, sizeof(st_head));
-  st = &st_head;
-
-  while (1) {
-    Xcheck(ds, dp);
-
-    switch (type) {
-    case XBASE: /* original prefixed string */
-      c = *sp++;
-      switch (c) {
-      case EOS:
-        c = 0;
-        break;
-      case CHAR:
-        c = *sp++;
-        break;
-      case QCHAR:
-        quote |= 2; /* temporary quote */
-        c = *sp++;
-        break;
-      case OQUOTE:
-        switch (word) {
-        case IFS_QUOTE:
-          /* """something */
-          word = IFS_WORD;
-          break;
-        case IFS_WORD:
-          break;
-        default:
-          word = IFS_QUOTE;
-          break;
-        }
-        tilde_ok = 0;
-        quote = 1;
-        continue;
-      case CQUOTE:
-        quote = 0;
-        continue;
-      case COMSUB:
-        tilde_ok = 0;
-        if (f & DONTRUNCOMMAND) {
-          word = IFS_WORD;
-          *dp++ = '$';
-          *dp++ = '(';
-          while (*sp != '\0') {
-            Xcheck(ds, dp);
-            *dp++ = *sp++;
-          }
-          *dp++ = ')';
-        } else {
-          type = comsub(&x, sp);
-          if (type == XCOM && (f & DOBLANK))
-            doblank++;
-          sp = strchr(sp, 0) + 1;
-          newlines = 0;
-        }
-        continue;
-      case EXPRSUB:
-        word = IFS_WORD;
-        tilde_ok = 0;
-        if (f & DONTRUNCOMMAND) {
-          *dp++ = '$';
-          *dp++ = '(';
-          *dp++ = '(';
-          while (*sp != '\0') {
-            Xcheck(ds, dp);
-            *dp++ = *sp++;
-          }
-          *dp++ = ')';
-          *dp++ = ')';
-        } else {
-          struct tbl v;
-          char *p;
-
-          v.flag = DEFINED | ISSET | INTEGER;
-          v.type = 10; /* not default */
-          v.name[0] = '\0';
-          v_evaluate(&v, substitute(sp, 0), KSH_UNWIND_ERROR, true);
-          sp = strchr(sp, 0) + 1;
-          for (p = str_val(&v); *p;) {
-            Xcheck(ds, dp);
-            *dp++ = *p++;
-          }
-        }
-        continue;
-      case OSUBST: /* ${{#}var{:}[=+-?#%]word} */
-                   /* format is:
-                    *   OSUBST [{x] plain-variable-part \0
-                    *     compiled-word-part CSUBST [}x]
-                    * This is where all syntax checking gets done...
-                    */
-        {
-          char *varname = ++sp; /* skip the { or x (}) */
-          int stype;
-          int slen = 0;
-
-          sp = strchr(sp, '\0') + 1; /* skip variable */
-          type = varsub(&x, varname, sp, &stype, &slen);
-          if (type < 0) {
-            char endc;
-            char *str, *end;
-
-            sp = varname - 2; /* restore sp */
-            end = (char *)wdscan(sp, CSUBST);
-            /* ({) the } or x is already skipped */
-            endc = *end;
-            *end = EOS;
-            str = snptreef(NULL, 64, "%S", sp);
-            *end = endc;
-            errorf("%s: bad substitution", str);
-          }
-          if (f & DOBLANK)
-            doblank++;
-          tilde_ok = 0;
-          if (word == IFS_QUOTE && type != XNULLSUB)
-            word = IFS_WORD;
-          if (type == XBASE) { /* expand? */
-            if (!st->next) {
-              SubType *newst;
-
-              newst = alloc(sizeof(SubType), ATEMP);
-              newst->next = NULL;
-              newst->prev = st;
-              st->next = newst;
-            }
-            st = st->next;
-            st->stype = stype;
-            st->base = Xsavepos(ds, dp);
-            st->f = f;
-            st->var = varcpy(x.var);
-            st->quote = quote;
-            /* skip qualifier(s) */
-            if (stype)
-              sp += slen;
-            switch (stype & 0x7f) {
-            case '#':
-            case '%':
-            case '/':
-              /* ! DOBLANK,DOBRACE_,DOTILDE */
-              f = DOPAT | (f & DONTRUNCOMMAND) | DOTEMP_;
-              quote = 0;
-              /* Prepend open pattern (so |
-               * in a trim will work as
-               * expected)
-               */
-              *dp++ = MAGIC;
-              *dp++ = '@' + 0x80U;
-              break;
-            case '=':
-              /* Enabling tilde expansion
-               * after :'s here is
-               * non-standard ksh, but is
-               * consistent with rules for
-               * other assignments.  Not
-               * sure what POSIX thinks of
-               * this.
-               * Not doing tilde expansion
-               * for integer variables is a
-               * non-POSIX thing - makes
-               * sense though, since ~ is
-               * a arithmetic operator.
-               */
-              if (!(x.var->flag & INTEGER))
-                f |= DOASNTILDE | DOTILDE;
-              f |= DOTEMP_;
-              /* These will be done after the
-               * value has been assigned.
-               */
-              f &= ~(DOBLANK | DOGLOB | DOBRACE_);
-              tilde_ok = 1;
-              break;
-            case '?':
-              f &= ~DOBLANK;
-              f |= DOTEMP_;
-              /* FALLTHROUGH */
-            default:
-              /* '-' '+' '?' */
-              if (quote)
-                word = IFS_WORD;
-              else if (dp == Xstring(ds, dp))
-                word = IFS_IWS;
-              /* Enable tilde expansion */
-              tilde_ok = 1;
-              f |= DOTILDE;
-            }
-          } else
-            /* skip word */
-            sp = (char *)wdscan(sp, CSUBST);
-          continue;
-        }
-      case CSUBST:    /* only get here if expanding word */
-        sp++;         /* ({) skip the } or x */
-        tilde_ok = 0; /* in case of ${unset:-} */
-        *dp = '\0';
-        quote = st->quote;
-        f = st->f;
-        if (f & DOBLANK)
-          doblank--;
-        switch (st->stype & 0x7f) {
-        case '/': {
-          /* ${v/pat/rep} and siblings.  The expand loop put this into
-           * ds, counting from st->base:
-           *
-           *   MAGIC '@'+0x80   <pattern, MAGIC-escaped>   MAGIC OREPSUB
-           *   <replacement, MAGIC-escaped as ordinary text>
-           *
-           * The opener is the same one the #/% trims prepend, so an
-           * alternation (|) in the pattern means what it means in
-           * case.  The pattern needs its MAGIC ')' closer (the trims
-           * append one) and is then debunk()ed back to text for
-           * gmatch_().  The replacement is literal.
-           */
-          char *we, *sep, *pat, *rep;
-          int plen;
-
-          *dp = '\0';
-          dp = Xrestpos(ds, dp, st->base);
-          for (we = dp; *we != '\0'; we++)
-            if (ISMAGIC(we[0]) && we[1] == OREPSUB)
-              break;
-          if (*we == '\0') {
-            /* ${v/pat} with no replacement: refused, see lex.c. */
-            errorf("%s: bad substitution", st->var->name);
-          }
-          sep = we;
-          plen = (int)(sep - dp) + 4;
-          pat = alloc(plen, ATEMP);
-          memcpy(pat, dp, sep - dp);
-          pat[sep - dp] = MAGIC;
-          pat[sep - dp + 1] = ')';
-          pat[sep - dp + 2] = '\0';
-          /* The pattern stays MAGIC-encoded, exactly as the #/% trims
-           * pass theirs: gmatch_()'s has_globbing() only understands
-           * MAGIC-escaped patterns, so a debunk()ed "@(X)" would be
-           * compared literally and never match (measured; this was the
-           * bug that made the first version of this code a no-op). */
-          rep = sep + 2; /* past the MAGIC pair */
-          /* The replacement went through the pattern pass, so any
-           * pattern metacharacter in it carries a MAGIC escape.  It is
-           * literal text, so debunk() it back. */
-          {
-            char *r = str_save(rep, ATEMP);
-            rep = debunk(r, r, strlen(r) + 1);
-          }
-          x.str = replacesub(str_val(st->var), pat, rep, st->stype);
-          if (x.str[0] != '\0') {
-            word = IFS_IWS;
-            type = XSUB;
-          } else if (quote) {
-            word = IFS_WORD;
-            type = XSUB;
-          } else {
-            word = IFS_IWS;
-            type = XNULLSUB;
-          }
-          if (f & DOBLANK)
-            doblank++;
-          st = st->prev;
-          continue;
-        }
-        case '#':
-        case '%':
-          /* Append end-pattern */
-          *dp++ = MAGIC;
-          *dp++ = ')';
-          *dp = '\0';
-          dp = Xrestpos(ds, dp, st->base);
-          /* Must use st->var since calling
-           * global would break things
-           * like x[i+=1].
-           */
-          x.str = trimsub(str_val(st->var), dp, st->stype);
-          if (x.str[0] != '\0') {
-            word = IFS_IWS;
-            type = XSUB;
-          } else if (quote) {
-            word = IFS_WORD;
-            type = XSUB;
-          } else {
-            if (dp == Xstring(ds, dp))
-              word = IFS_IWS;
-            type = XNULLSUB;
-          }
-          if (f & DOBLANK)
-            doblank++;
-          st = st->prev;
-          continue;
-        case '=':
-          /* Restore our position and substitute
-           * the value of st->var (may not be
-           * the assigned value in the presence
-           * of integer/right-adj/etc attributes).
-           */
-          dp = Xrestpos(ds, dp, st->base);
-          /* Must use st->var since calling
-           * global would cause with things
-           * like x[i+=1] to be evaluated twice.
-           */
-          /* Note: not exported by FEXPORT
-           * in at&t ksh.
-           */
-          /* XXX POSIX says readonly is only
-           * fatal for special builtins (setstr
-           * does readonly check).
-           */
-          len = strlen(dp) + 1;
-          setstr(st->var, debunk(alloc(len, ATEMP), dp, len), KSH_UNWIND_ERROR);
-          x.str = str_val(st->var);
-          type = XSUB;
-          if (f & DOBLANK)
-            doblank++;
-          st = st->prev;
-          if (quote || !*x.str)
-            word = IFS_WORD;
-          else
-            word = IFS_IWS;
-          continue;
-        case '?': {
-          char *s = Xrestpos(ds, dp, st->base);
-
-          errorf("%s: %s", st->var->name,
-                 dp == s ? "parameter null or not set"
-                         : (debunk(s, s, strlen(s) + 1), s));
-        }
-        }
-        st = st->prev;
-        type = XBASE;
-        continue;
-
-      case OPAT: /* open pattern: *(foo|bar) */
-        /* Next char is the type of pattern */
-        make_magic = 1;
-        c = *sp++ + 0x80;
-        break;
-
-      case SPAT: /* pattern separator (|) */
-        make_magic = 1;
-        c = '|';
-        break;
-
-      case OREPSUB: /* pat/rep separator in ${v/pat/rep} */
-        /* Kept as a MAGIC-escaped marker so it survives the second
-         * pass, matching what the '#'/'%' trims do with their
-         * '@'+0x80 openers.  replacsub() splits on it at apply time.
-         */
-        make_magic = 1;
-        c = OREPSUB;
-        break;
-
-      case CPAT: /* close pattern */
-        make_magic = 1;
-        c = /*(*/ ')';
-        break;
-      }
-      break;
-
-    case XNULLSUB:
-      /* Special case for "$@" (and "${foo[@]}") - no
-       * word is generated if $# is 0 (unless there is
-       * other stuff inside the quotes).
-       */
-      type = XBASE;
-      if (f & DOBLANK) {
-        doblank--;
-        if (dp == Xstring(ds, dp) && word != IFS_WORD)
-          word = IFS_IWS;
-      }
-      continue;
-
-    case XSUB:
-    case XSUBMID:
-      if ((c = *x.str++) == 0) {
-        type = XBASE;
-        if (f & DOBLANK)
-          doblank--;
-        continue;
-      }
-      break;
-
-    case XARGSEP:
-      type = XARG;
-      quote = 1;
-    case XARG:
-      if ((c = *x.str++) == '\0') {
-        /* force null words to be created so
-         * set -- '' 2 ''; foo "$@" will do
-         * the right thing
-         */
-        if (quote && x.split)
-          word = IFS_WORD;
-        if ((x.str = *x.u.strv++) == NULL) {
-          type = XBASE;
-          if (f & DOBLANK)
-            doblank--;
-          continue;
-        }
-        c = ifs0;
-        if (c == 0) {
-          if (quote && !x.split)
-            continue;
-          if (!quote && word == IFS_WS)
-            continue;
-          /* this is so we don't terminate */
-          c = ' ';
-          /* now force-emit a word */
-          goto emit_word;
-        }
-        if (quote && x.split) {
-          /* terminate word for "$@" */
-          type = XARGSEP;
-          quote = 0;
-        }
-      }
-      break;
-
-    case XCOM:
-      if (x.u.shf == NULL) /* $(< ...) failed, fake EOF */
-        c = EOF;
-      else if (newlines) { /* Spit out saved nl's */
-        c = '\n';
-        --newlines;
-      } else {
-        while ((c = shf_getc(x.u.shf)) == 0 || c == '\n')
-          if (c == '\n')
-            newlines++; /* Save newlines */
-        if (newlines && c != EOF) {
-          shf_ungetc(c, x.u.shf);
-          c = '\n';
-          --newlines;
-        }
-      }
-      if (c == EOF) {
-        newlines = 0;
-        if (x.u.shf != NULL)
-          shf_close(x.u.shf);
-        if (x.split)
-          subst_exstat = waitlast();
-        else
-          subst_exstat = (x.u.shf == NULL);
-        type = XBASE;
-        if (f & DOBLANK)
-          doblank--;
-        continue;
-      }
-      break;
-    }
-
-    /* check for end of word or IFS separation */
-    if (c == 0 || (!quote && (f & DOBLANK) && doblank && !make_magic &&
-                   ctype(c, C_IFS))) {
-      /* How words are broken up:
-       *		   |       value of c
-       *	  word	   |	ws	nws	0
-       *	-----------------------------------
-       *	IFS_WORD	w/WS	w/NWS	w
-       *	IFS_WS		-/WS	w/NWS	-
-       *	IFS_NWS		-/NWS	w/NWS	-
-       *	IFS_IWS		-/WS	w/NWS	-
-       *   (w means generate a word)
-       */
-      if ((word == IFS_WORD) || (word == IFS_QUOTE) ||
-          (c && (word == IFS_IWS || word == IFS_NWS) && !ctype(c, C_IFSWS))) {
+int
+evalcmd(int argc, char **argv)
+{
         char *p;
-      emit_word:
-        *dp++ = '\0';
-        p = Xclose(ds, dp);
-        if (fdo & DOBRACE_)
-          /* also does globbing */
-          alt_expand(wp, p, p, p + Xlength(ds, (dp - 1)),
-                     fdo | (f & DOMARKDIRS));
-        else if (fdo & DOGLOB)
-          glob(p, wp, f & DOMARKDIRS);
-        else if ((f & DOPAT) || !(fdo & DOMAGIC_))
-          XPput(*wp, p);
-        else
-          XPput(*wp, debunk(p, p, strlen(p) + 1));
-        fdo = 0;
-        saw_eq = 0;
-        tilde_ok = (f & (DOTILDE | DOASNTILDE)) ? 1 : 0;
-        if (c != 0)
-          Xinit(ds, dp, 128, ATEMP);
-      }
-      if (c == 0)
-        goto done;
-      if (word != IFS_NWS)
-        word = ctype(c, C_IFSWS) ? IFS_WS : IFS_NWS;
-    } else {
-      if (type == XSUB) {
-        if (word == IFS_NWS && Xlength(ds, dp) == 0) {
-          char *p;
+        char *concat;
+        char **ap;
 
-          if ((p = strdup("")) == NULL)
-            internal_errorf("unable "
-                            "to allocate memory");
-          XPput(*wp, p);
-        }
-        type = XSUBMID;
-      }
-
-      /* age tilde_ok info - ~ code tests second bit */
-      tilde_ok <<= 1;
-      /* mark any special second pass chars */
-      if (!quote)
-        switch (c) {
-        case '[':
-        case '!':
-        case '-':
-        case ']':
-          /* For character classes - doesn't hurt
-           * to have magic !,-,]'s outside of
-           * [...] expressions.
-           */
-          if (f & (DOPAT | DOGLOB)) {
-            fdo |= DOMAGIC_;
-            if (c == '[')
-              fdo |= f & DOGLOB;
-            *dp++ = MAGIC;
-          }
-          break;
-        case '*':
-        case '?':
-          if (f & (DOPAT | DOGLOB)) {
-            fdo |= DOMAGIC_ | (f & DOGLOB);
-            *dp++ = MAGIC;
-          }
-          break;
-        case OBRACE:
-        case ',':
-        case CBRACE:
-          if ((f & DOBRACE_) && (c == OBRACE || (fdo & DOBRACE_))) {
-            fdo |= DOBRACE_ | DOMAGIC_;
-            *dp++ = MAGIC;
-          }
-          break;
-        case '=':
-          /* Note first unquoted = for ~ */
-          if (!(f & DOTEMP_) && !saw_eq) {
-            saw_eq = 1;
-            tilde_ok = 1;
-          }
-          break;
-        case ':': /* : */
-          /* Note unquoted : for ~ */
-          if (!(f & DOTEMP_) && (f & DOASNTILDE))
-            tilde_ok = 1;
-          break;
-        case '~':
-          /* tilde_ok is reset whenever
-           * any of ' " $( $(( ${ } are seen.
-           * Note that tilde_ok must be preserved
-           * through the sequence ${A=a=}~
-           */
-          if (type == XBASE && (f & (DOTILDE | DOASNTILDE)) && (tilde_ok & 2)) {
-            char *p, *dp_x;
-
-            dp_x = dp;
-            p = maybe_expand_tilde(sp, &ds, &dp_x, f & DOASNTILDE);
-            if (p) {
-              if (dp != dp_x)
-                word = IFS_WORD;
-              dp = dp_x;
-              sp = p;
-              continue;
-            }
-          }
-          break;
-        }
-      else
-        quote &= ~2; /* undo temporary */
-
-      if (make_magic) {
-        make_magic = 0;
-        fdo |= DOMAGIC_ | (f & DOGLOB);
-        *dp++ = MAGIC;
-      } else if (ISMAGIC(c)) {
-        fdo |= DOMAGIC_;
-        *dp++ = MAGIC;
-      }
-      *dp++ = c; /* save output char */
-      word = IFS_WORD;
-    }
-  }
-
-done:
-  for (st = &st_head; st != NULL; st = st->next) {
-    if (st->var == NULL || (st->var->flag & RDONLY) == 0)
-      continue;
-
-    afree(st->var, ATEMP);
-  }
+        if (argc > 1) {
+                p = argv[1];
+                if (argc > 2) {
+                        STARTSTACKSTR(concat);
+                        ap = argv + 2;
+                        for (;;) {
+                                STPUTS(p, concat);
+                                if ((p = *ap++) == NULL)
+                                        break;
+                                STPUTC(' ', concat);
+                        }
+                        STPUTC('\0', concat);
+                        p = grabstackstr(concat);
+                }
+                evalstring(p, builtin_flags);
+        } else
+                exitstatus = 0;
+        return exitstatus;
 }
 
+
 /*
- * Prepare to generate the string returned by ${} substitution.
+ * Execute a command or commands contained in a string.
  */
-static int varsub(Expand *xp, char *sp, char *word,
-                  int *stypep, /* becomes qualifier type */
-                  int *slenp) /* " " len (=, :=, etc.) valid iff *stypep != 0 */
+
+void
+evalstring(const char *s, int flags)
 {
-  int c;
-  int state; /* next state: XBASE, XARG, XSUB, XNULLSUB */
-  int stype; /* substitution type */
-  int slen;
-  char *p;
-  struct tbl *vp;
-  int zero_ok = 0;
+	union node *n;
+	struct stackmark smark;
+	int flags_exit;
+	int any;
 
-  if (sp[0] == '\0') /* Bad variable name */
-    return -1;
-
-  xp->var = NULL;
-
-  /* ${#var}, string length or array size */
-  if (sp[0] == '#' && (c = sp[1]) != '\0') {
-    /* Can't have any modifiers for ${#...} */
-    if (*word != CSUBST)
-      return -1;
-    sp++;
-    /* Check for size of array */
-    if ((p = strchr(sp, '[')) && (p[1] == '*' || p[1] == '@') && p[2] == ']') {
-      int n = 0;
-
-      vp = global(arrayname(sp));
-      if (vp->flag & (ISSET | ARRAY))
-        zero_ok = 1;
-      for (; vp; vp = vp->u.array)
-        if (vp->flag & ISSET)
-          n++;
-      c = n; /* ksh88/ksh93 go for number, not max index */
-    } else if (c == '*' || c == '@')
-      c = genv->loc->argc;
-    else {
-      p = str_val(global(sp));
-      zero_ok = p != null;
-      c = strlen(p);
-    }
-    if (Flag(FNOUNSET) && c == 0 && !zero_ok)
-      errorf("%s: parameter not set", sp);
-    *stypep = 0; /* unqualified variable/string substitution */
-    xp->str = str_save(u64ton((uint64_t)c, 10), ATEMP);
-    return XSUB;
-  }
-
-  /* Check for qualifiers in word part */
-  stype = 0;
-  c = word[slen = 0] == CHAR ? word[1] : 0;
-  if (c == ':') {
-    slen += 2;
-    stype = 0x80;
-    c = word[slen + 0] == CHAR ? word[slen + 1] : 0;
-  }
-  if (c == '/') {
-    /* ${v/pat/rep} -- docs/language.md, "the four forms".
-     *   '/'            first match             (stype '/')
-     *   '/' '/'        every match             (stype '/'|REP_ALL)
-     *   '/' '#'        anchored at the start    (stype '/'|REP_HEAD)
-     *   '/' '%'        anchored at the end      (stype '/'|REP_TAIL)
-     * The pattern and replacement that follow are one word separated by
-     * OREPSUB; they are expanded by the normal machinery in expand().
-     */
-    stype = '/';
-    slen += 2; /* the '/' just seen */
-    if (word[slen + 0] == CHAR && word[slen + 1] == '/') {
-      stype |= REP_ALL;
-      slen += 2;
-    } else if (word[slen + 0] == CHAR && word[slen + 1] == '#') {
-      stype |= REP_HEAD;
-      slen += 2;
-    } else if (word[slen + 0] == CHAR && word[slen + 1] == '%') {
-      stype |= REP_TAIL;
-      slen += 2;
-    }
-  } else if (ctype(c, C_SUBOP1)) {
-    slen += 2;
-    stype |= c;
-  } else if (ctype(c, C_SUBOP2)) { /* Note: ksh88 allows :%, :%%, etc */
-    slen += 2;
-    stype = c;
-    if (word[slen + 0] == CHAR && c == word[slen + 1]) {
-      stype |= 0x80;
-      slen += 2;
-    }
-  } else if (stype) /* : is not ok */
-    return -1;
-  if (!stype && *word != CSUBST)
-    return -1;
-  *stypep = stype;
-  *slenp = slen;
-
-  c = sp[0];
-  if (c == '*' || c == '@') {
-    switch (stype & 0x7f) {
-    case '=': /* can't assign to a vector */
-    case '%': /* can't trim a vector (yet) */
-    case '#':
-    case '/': /* same: a replacement on $* has no meaning */
-      return -1;
-    }
-    if (genv->loc->argc == 0) {
-      xp->str = null;
-      xp->var = global(sp);
-      state = c == '@' ? XNULLSUB : XSUB;
-    } else {
-      xp->u.strv = (const char **)genv->loc->argv + 1;
-      xp->str = *xp->u.strv++;
-      xp->split = c == '@'; /* $@ */
-      state = XARG;
-    }
-    zero_ok = 1; /* exempt "$@" and "$*" from 'set -u' */
-  } else {
-    if ((p = strchr(sp, '[')) && (p[1] == '*' || p[1] == '@') && p[2] == ']') {
-      XPtrV wv;
-
-      switch (stype & 0x7f) {
-      case '=': /* can't assign to a vector */
-      case '%': /* can't trim a vector (yet) */
-      case '#':
-      case '?':
-      case '/': /* not implemented; refuse rather than misbehave */
-        return -1;
-      }
-      XPinit(wv, 32);
-      vp = global(arrayname(sp));
-      for (; vp; vp = vp->u.array) {
-        if (!(vp->flag & ISSET))
-          continue;
-        XPput(wv, str_val(vp));
-      }
-      if (XPsize(wv) == 0) {
-        xp->str = null;
-        state = p[1] == '@' ? XNULLSUB : XSUB;
-        XPfree(wv);
-      } else {
-        XPput(wv, 0);
-        xp->u.strv = (const char **)XPptrv(wv);
-        xp->str = *xp->u.strv++;
-        xp->split = p[1] == '@'; /* ${foo[@]} */
-        state = XARG;
-      }
-    } else {
-      /* Can't assign things like $! or $1 */
-      if ((stype & 0x7f) == '=' && (ctype(*sp, C_VAR1) || digit(*sp)))
-        return -1;
-      xp->var = global(sp);
-      xp->str = str_val(xp->var);
-      state = XSUB;
-    }
-  }
-
-  c = stype & 0x7f;
-  /* test the compiler's code generator */
-  if (c == '/' || ctype(c, C_SUBOP2) ||
-      (((stype & 0x80) ? *xp->str == '\0' : xp->str == null) ? /* undef? */
-           c == '=' || c == '-' || c == '?'
-                                                             : c == '+'))
-    state = XBASE; /* expand word instead of variable value */
-  if (Flag(FNOUNSET) && xp->str == null && !zero_ok &&
-      (c == '/' || ctype(c, C_SUBOP2) || (state != XBASE && c != '+')))
-    errorf("%s: parameter not set", sp);
-  return state;
+	flags_exit = flags & EV_EXIT;
+	flags &= ~EV_EXIT;
+	any = 0;
+	setstackmark(&smark);
+	setinputstring(s, 1);
+	while ((n = parsecmd(0)) != NEOF) {
+		if (n != NULL && !nflag) {
+			if (flags_exit && preadateof())
+				evaltree(n, flags | EV_EXIT);
+			else
+				evaltree(n, flags);
+			any = 1;
+			if (evalskip)
+				break;
+		}
+		popstackmark(&smark);
+		setstackmark(&smark);
+	}
+	popfile();
+	popstackmark(&smark);
+	if (!any)
+		exitstatus = 0;
+	if (flags_exit)
+		exraise(EXEXIT);
 }
+
 
 /*
- * Run the command in $(...) and read its output.
- */
-static int comsub(Expand *xp, char *cp) {
-  Source *s, *sold;
-  struct op *t;
-  struct shf *shf;
-
-  s = pushs(SSTRING, ATEMP);
-  s->start = s->str = cp;
-  sold = source;
-  t = compile(s);
-  afree(s, ATEMP);
-  source = sold;
-
-  if (t == NULL)
-    return XBASE;
-
-  if (t != NULL && t->type == TCOM && /* $(<file) */
-      *t->args == NULL && *t->vars == NULL && t->ioact != NULL) {
-    struct ioword *io = *t->ioact;
-    char *name;
-
-    if ((io->flag & IOTYPE) != IOREAD)
-      errorf("funny $() command: %s", snptreef(NULL, 32, "%R", io));
-    shf = shf_open(name = evalstr(io->name, DOTILDE), O_RDONLY, 0,
-                   SHF_MAPHI | SHF_CLEXEC);
-    if (shf == NULL)
-      warningf(!Flag(FTALKING), "%s: %s", name, strerror(errno));
-    xp->split = 0; /* no waitlast() */
-  } else {
-    int ofd1, pv[2];
-    openpipe(pv);
-    shf = shf_fdopen(pv[0], SHF_RD, NULL);
-    ofd1 = savefd(1);
-    if (pv[1] != 1) {
-      ksh_dup2(pv[1], 1, false);
-      close(pv[1]);
-    }
-    execute(t, XFORK | XXCOM | XPIPEO, NULL);
-    restfd(1, ofd1);
-    startlast();
-    xp->split = 1; /* waitlast() */
-  }
-
-  xp->u.shf = shf;
-  return XCOM;
-}
-
-/*
- * perform #pattern and %pattern substitution in ${}
+ * Evaluate a parse tree.  The value is left in the global variable
+ * exitstatus.
  */
 
-static char *trimsub(char *str, char *pat, int how) {
-  char *end = strchr(str, 0);
-  char *p, c;
-
-  switch (how & 0xff) { /* UCHAR_MAX maybe? */
-  case '#':             /* shortest at beginning */
-    for (p = str; p <= end; p++) {
-      c = *p;
-      *p = '\0';
-      if (gmatch_(str, pat, false)) {
-        *p = c;
-        return p;
-      }
-      *p = c;
-    }
-    break;
-  case '#' | 0x80: /* longest match at beginning */
-    for (p = end; p >= str; p--) {
-      c = *p;
-      *p = '\0';
-      if (gmatch_(str, pat, false)) {
-        *p = c;
-        return p;
-      }
-      *p = c;
-    }
-    break;
-  case '%': /* shortest match at end */
-    for (p = end; p >= str; p--) {
-      if (gmatch_(p, pat, false))
-        return str_nsave(str, p - str, ATEMP);
-    }
-    break;
-  case '%' | 0x80: /* longest match at end */
-    for (p = str; p <= end; p++) {
-      if (gmatch_(p, pat, false))
-        return str_nsave(str, p - str, ATEMP);
-    }
-    break;
-  }
-
-  return str; /* no match, return string */
-}
-
-/*
- * perform ${v/pat/rep} and its three siblings in ${}
- *
- * The pattern is a ksh glob matched by gmatch_(), the same matcher case
- * and ${v#pat} use -- that is the D2 decision in docs/language.md, and
- * it is why there is no second pattern engine here.
- *
- *   '/'               first match, anywhere in the value
- *   '/'|REP_ALL       every match
- *   '/'|REP_HEAD      only where the value starts
- *   '/'|REP_TAIL      only where the value ends
- *
- * The replacement is literal text: nothing in it is special, and '&' is
- * not a back-reference (documented; bash's '&' is not followed here).
- *
- * Matches are found by trying every substring boundary, shortest first
- * at each start, which is what makes `a*' behave the way it does in
- * case: the shortest match wins.  An empty pattern is refused by
- * varsub() before this is reached.
- */
-static char *replacesub(char *str, char *pat, char *rep, int how) {
-  XString xs;
-  char *xp;
-  const char *sp, *pe;
-  size_t replen = strlen(rep);
-  int found = 0;
-
-  /*
-   * Copy the arguments out of ATEMP before allocating: Xinit() and any
-   * afree() below can reuse the very block str/pat/rep live in, which
-   * corrupts them mid-scan (this cost a debugging session).  One
-   * strdup each is cheap and keeps the rest of the shell's memory
-   * conventions alone.
-   */
-  {
-    char *s = str_save(str, ATEMP);
-    char *p = str_save(pat, ATEMP);
-    char *r = str_save(rep, ATEMP);
-    /* s deliberately leaks into xs below; p and r are only read. */
-    Xinit(xs, xp, (int)strlen(s) + 16, ATEMP);
-    str = s;
-    pat = p;
-    rep = r;
-  }
-
-  /*
-   * Head and tail are one anchored test each.
-   *
-   *   ${v/#pat/rep}  a match must start at the first character
-   *   ${v/%pat/rep}  a match must end at the last character
-   */
-  if (how & (REP_HEAD | REP_TAIL)) {
-    size_t n = strlen(str);
-
-    if (how & REP_HEAD) {
-      for (pe = str + n; pe >= str; pe--) {
-        char c = *pe;
-
-        *(char *)pe = '\0';
-        found = gmatch_(str, pat, false);
-        *(char *)pe = c;
-        if (found)
-          break;
-      }
-      if (!found)
-        return str;
-      memcpy(xp, rep, replen);
-      xp += replen;
-      strlcpy(xp, pe, Xnleft(xs, xp));
-      xp += strlen(pe);
-    } else {
-      for (sp = str; *sp != '\0'; sp++) {
-        if (gmatch_(sp, pat, false)) {
-          found = 1;
-          break;
-        }
-      }
-      if (!found)
-        return str;
-      memcpy(xp, str, (size_t)(sp - str));
-      xp += sp - str;
-      memcpy(xp, rep, replen);
-      xp += replen;
-      *xp = '\0';
-    }
-    return Xclose(xs, xp);
-  }
-
-  /*
-   * Plain and //: walk the value once.  At each position find the
-   * shortest match (the same rule case and the trims use, so `a*' is
-   * not greedy); copy what was skipped and the replacement, and stop
-   * after one match unless // was asked for.
-   */
-  for (sp = str; *sp != '\0';) {
-    const char *start = sp;
-    const char *best = NULL;
-
-    /* Every possible end for a match starting at sp, shortest first.
-     * The last candidate ends at the end of the value, so a pattern
-     * that ends the string is found too. */
-    for (pe = sp;; pe++) {
-      char c = *pe;
-      int hit;
-
-      *(char *)pe = '\0';
-      hit = gmatch_(sp, pat, false);
-      *(char *)pe = c;
-      if (hit) {
-        best = pe;
-        break;
-      }
-      if (c == '\0')
-        break;
-    }
-
-    if (best == NULL) {
-      /* no match here: this character stays */
-      Xcheck(xs, xp);
-      *xp++ = *sp++;
-      continue;
-    }
-    found = 1;
-    XcheckN(xs, xp, (int)replen + (int)(best - sp));
-    memcpy(xp, rep, replen);
-    xp += replen;
-    sp = best;
-    if (!(how & REP_ALL))
-      break;
-    /* A pattern that matches the empty string would leave sp where it
-     * started and loop forever: step one character first, and let the
-     * next position try again. */
-    if (best == start) {
-      if (*sp == '\0')
-        break;
-      Xcheck(xs, xp);
-      *xp++ = *sp++;
-    }
-  }
-
-  if (!found)
-    return str;
-  {
-    size_t rest = strlen(sp);
-
-    XcheckN(xs, xp, (int)rest + 1);
-    memcpy(xp, sp, rest + 1);
-    return Xclose(xs, xp + rest);
-  }
-}
-
-/*
- * glob
- * Name derived from V6's /etc/glob, the program that expanded filenames.
- */
-
-/* XXX cp not const 'cause slashes are temporarily replaced with nulls... */
-static void glob(char *cp, XPtrV *wp, int markdirs) {
-  int oldsize = XPsize(*wp);
-
-  if (glob_str(cp, wp, markdirs) == 0)
-    XPput(*wp, debunk(cp, cp, strlen(cp) + 1));
-  else
-    qsortp(XPptrv(*wp) + oldsize, (size_t)(XPsize(*wp) - oldsize), xstrcmp);
-}
-
-#define GF_NONE 0
-#define GF_EXCHECK BIT(0) /* do existence check on file */
-#define GF_GLOBBED BIT(1) /* some globbing has been done */
-#define GF_MARKDIR BIT(2) /* add trailing / to directories */
-
-/* Apply file globbing to cp and store the matching files in wp.  Returns
- * the number of matches found.
- */
-int glob_str(char *cp, XPtrV *wp, int markdirs) {
-  int oldsize = XPsize(*wp);
-  XString xs;
-  char *xp;
-
-  Xinit(xs, xp, 256, ATEMP);
-  globit(&xs, &xp, cp, wp, markdirs ? GF_MARKDIR : GF_NONE);
-  Xfree(xs, xp);
-
-  return XPsize(*wp) - oldsize;
-}
-
-static void globit(XString *xs, /* dest string */
-                   char **xpp,  /* ptr to dest end */
-                   char *sp,    /* source path */
-                   XPtrV *wp,   /* output list */
-                   int check)   /* GF_* flags */
+void
+evaltree(union node *n, int flags)
 {
-  char *np; /* next source component */
-  char *xp = *xpp;
-  char *se;
-  char odirsep;
+	int do_etest;
+	union node *next;
+	struct stackmark smark;
 
-  /* This to allow long expansions to be interrupted */
-  intrcheck();
+	setstackmark(&smark);
+	do_etest = 0;
+	if (n == NULL) {
+		TRACE(("evaltree(NULL) called\n"));
+		exitstatus = 0;
+		goto out;
+	}
+	do {
+		next = NULL;
+#ifndef NO_HISTORY
+		displayhist = 1;	/* show history substitutions done with fc */
+#endif
+		TRACE(("evaltree(%p: %d) called\n", (void *)n, n->type));
+		switch (n->type) {
+		case NSEMI:
+			evaltree(n->nbinary.ch1, flags & ~EV_EXIT);
+			if (evalskip)
+				goto out;
+			next = n->nbinary.ch2;
+			break;
+		case NAND:
+			evaltree(n->nbinary.ch1, EV_TESTED);
+			if (evalskip || exitstatus != 0) {
+				goto out;
+			}
+			next = n->nbinary.ch2;
+			break;
+		case NOR:
+			evaltree(n->nbinary.ch1, EV_TESTED);
+			if (evalskip || exitstatus == 0)
+				goto out;
+			next = n->nbinary.ch2;
+			break;
+		case NREDIR:
+			evalredir(n, flags);
+			break;
+		case NSUBSHELL:
+			evalsubshell(n, flags);
+			do_etest = !(flags & EV_TESTED);
+			break;
+		case NBACKGND:
+			evalsubshell(n, flags);
+			break;
+		case NIF: {
+			evaltree(n->nif.test, EV_TESTED);
+			if (evalskip)
+				goto out;
+			if (exitstatus == 0)
+				next = n->nif.ifpart;
+			else if (n->nif.elsepart)
+				next = n->nif.elsepart;
+			else
+				exitstatus = 0;
+			break;
+		}
+		case NWHILE:
+		case NUNTIL:
+			evalloop(n, flags & ~EV_EXIT);
+			break;
+		case NFOR:
+			evalfor(n, flags & ~EV_EXIT);
+			break;
+		case NCASE:
+			next = evalcase(n);
+			break;
+		case NCLIST:
+			next = n->nclist.body;
+			break;
+		case NCLISTFALLTHRU:
+			if (n->nclist.body) {
+				evaltree(n->nclist.body, flags & ~EV_EXIT);
+				if (evalskip)
+					goto out;
+			}
+			next = n->nclist.next;
+			break;
+		case NDEFUN:
+			defun(n->narg.text, n->narg.next);
+			exitstatus = 0;
+			break;
+		case NNOT:
+			evaltree(n->nnot.com, EV_TESTED);
+			if (evalskip)
+				goto out;
+			exitstatus = !exitstatus;
+			break;
 
-  if (sp == NULL) { /* end of source path */
-    /* We only need to check if the file exists if a pattern
-     * is followed by a non-pattern (eg, foo*x/bar; no check
-     * is needed for foo* since the match must exist) or if
-     * any patterns were expanded and the markdirs option is set.
-     * Symlinks make things a bit tricky...
-     */
-    if ((check & GF_EXCHECK) ||
-        ((check & GF_MARKDIR) && (check & GF_GLOBBED))) {
-#define stat_check()                                                           \
-  (stat_done ? stat_done                                                       \
-             : (stat_done = stat(Xstring(*xs, xp), &statb) == -1 ? -1 : 1))
-      struct stat lstatb, statb;
-      int stat_done = 0; /* -1: failed, 1 ok */
-
-      if (lstat(Xstring(*xs, xp), &lstatb) == -1)
-        return;
-      /* special case for systems which strip trailing
-       * slashes from regular files (eg, /etc/passwd/).
-       * SunOS 4.1.3 does this...
-       */
-      if ((check & GF_EXCHECK) && xp > Xstring(*xs, xp) && xp[-1] == '/' &&
-          !S_ISDIR(lstatb.st_mode) &&
-          (!S_ISLNK(lstatb.st_mode) || stat_check() < 0 ||
-           !S_ISDIR(statb.st_mode)))
-        return;
-      /* Possibly tack on a trailing / if there isn't already
-       * one and if the file is a directory or a symlink to a
-       * directory
-       */
-      if (((check & GF_MARKDIR) && (check & GF_GLOBBED)) &&
-          xp > Xstring(*xs, xp) && xp[-1] != '/' &&
-          (S_ISDIR(lstatb.st_mode) ||
-           (S_ISLNK(lstatb.st_mode) && stat_check() > 0 &&
-            S_ISDIR(statb.st_mode)))) {
-        *xp++ = '/';
-        *xp = '\0';
-      }
-    }
-    XPput(*wp, str_nsave(Xstring(*xs, xp), Xlength(*xs, xp), ATEMP));
-    return;
-  }
-
-  if (xp > Xstring(*xs, xp))
-    *xp++ = '/';
-  while (*sp == '/') {
-    Xcheck(*xs, xp);
-    *xp++ = *sp++;
-  }
-  np = strchr(sp, '/');
-  if (np != NULL) {
-    se = np;
-    odirsep = *np; /* don't assume '/', can be multiple kinds */
-    *np++ = '\0';
-  } else {
-    odirsep = '\0'; /* keep gcc quiet */
-    se = sp + strlen(sp);
-  }
-
-  /* Check if sp needs globbing - done to avoid pattern checks for strings
-   * containing MAGIC characters, open ['s without the matching close ],
-   * etc. (otherwise opendir() will be called which may fail because the
-   * directory isn't readable - if no globbing is needed, only execute
-   * permission should be required (as per POSIX)).
-   */
-  if (!has_globbing(sp, se)) {
-    XcheckN(*xs, xp, se - sp + 1);
-    debunk(xp, sp, Xnleft(*xs, xp));
-    xp += strlen(xp);
-    *xpp = xp;
-    globit(xs, xpp, np, wp, check);
-  } else {
-    DIR *dirp;
-    struct dirent *d;
-    char *name;
-    int len;
-    int prefix_len;
-
-    *xp = '\0';
-    prefix_len = Xlength(*xs, xp);
-    dirp = opendir(prefix_len ? Xstring(*xs, xp) : ".");
-    if (dirp == NULL)
-      goto Nodir;
-    while ((d = readdir(dirp)) != NULL) {
-      name = d->d_name;
-      if (name[0] == '.' && (name[1] == 0 || (name[1] == '.' && name[2] == 0)))
-        continue; /* always ignore . and .. */
-      if ((*name == '.' && *sp != '.') || !gmatch_(name, sp, true))
-        continue;
-
-      len = strlen(d->d_name) + 1;
-      XcheckN(*xs, xp, len);
-      memcpy(xp, name, len);
-      *xpp = xp + len - 1;
-      globit(xs, xpp, np, wp,
-             (check & GF_MARKDIR) | GF_GLOBBED | (np ? GF_EXCHECK : GF_NONE));
-      xp = Xstring(*xs, xp) + prefix_len;
-    }
-    closedir(dirp);
-  Nodir:;
-  }
-
-  if (np != NULL)
-    *--np = odirsep;
+		case NPIPE:
+			evalpipe(n);
+			do_etest = !(flags & EV_TESTED);
+			break;
+		case NCMD:
+			evalcommand(n, flags, (struct backcmd *)NULL);
+			do_etest = !(flags & EV_TESTED);
+			break;
+		default:
+			out1fmt("Node type = %d\n", n->type);
+			flushout(&output);
+			break;
+		}
+		n = next;
+		popstackmark(&smark);
+		setstackmark(&smark);
+	} while (n != NULL);
+out:
+	popstackmark(&smark);
+	if (pendingsig)
+		dotrap();
+	if (eflag && exitstatus != 0 && do_etest)
+		exitshell(exitstatus);
+	if (flags & EV_EXIT)
+		exraise(EXEXIT);
 }
 
-/* remove MAGIC from string */
-char *debunk(char *dp, const char *sp, size_t dlen) {
-  char *d, *s;
 
-  if ((s = strchr(sp, MAGIC))) {
-    size_t slen = s - sp;
-    if (slen >= dlen)
-      return dp;
-    memcpy(dp, sp, slen);
-    for (d = dp + slen; *s && (d < dp + dlen); s++)
-      if (!ISMAGIC(*s) || !(*++s & 0x80) || !strchr("*+?@! ", *s & 0x7f))
-        *d++ = *s;
-      else {
-        /* extended pattern operators: *+?@! */
-        if ((*s & 0x7f) != ' ')
-          *d++ = *s & 0x7f;
-        if (d < dp + dlen)
-          *d++ = '(';
-      }
-    *d = '\0';
-  } else if (dp != sp)
-    strlcpy(dp, sp, dlen);
-  return dp;
+static void
+evalloop(union node *n, int flags)
+{
+	int status;
+
+	loopnest++;
+	status = 0;
+	for (;;) {
+		if (!evalskip)
+			evaltree(n->nbinary.ch1, EV_TESTED);
+		if (evalskip) {
+			if (evalskip == SKIPCONT && --skipcount <= 0) {
+				evalskip = 0;
+				continue;
+			}
+			if (evalskip == SKIPBREAK && --skipcount <= 0)
+				evalskip = 0;
+			if (evalskip == SKIPRETURN)
+				status = exitstatus;
+			break;
+		}
+		if (n->type == NWHILE) {
+			if (exitstatus != 0)
+				break;
+		} else {
+			if (exitstatus == 0)
+				break;
+		}
+		evaltree(n->nbinary.ch2, flags);
+		status = exitstatus;
+	}
+	loopnest--;
+	exitstatus = status;
 }
 
-/* Check if p is an unquoted name, possibly followed by a / or :.  If so
- * puts the expanded version in *dcp,dp and returns a pointer in p just
- * past the name, otherwise returns 0.
- */
-static char *maybe_expand_tilde(char *p, XString *dsp, char **dpp,
-                                int isassign) {
-  XString ts;
-  char *dp = *dpp;
-  char *tp, *r;
 
-  Xinit(ts, tp, 16, ATEMP);
-  /* : only for DOASNTILDE form */
-  while (p[0] == CHAR && p[1] != '/' && (!isassign || p[1] != ':')) {
-    Xcheck(ts, tp);
-    *tp++ = p[1];
-    p += 2;
-  }
-  *tp = '\0';
-  r = (p[0] == EOS || p[0] == CHAR || p[0] == CSUBST) ? tilde(Xstring(ts, tp))
-                                                      : NULL;
-  Xfree(ts, tp);
-  if (r) {
-    while (*r) {
-      Xcheck(*dsp, dp);
-      if (ISMAGIC(*r))
-        *dp++ = MAGIC;
-      *dp++ = *r++;
-    }
-    *dpp = dp;
-    r = p;
-  }
-  return r;
+
+static void
+evalfor(union node *n, int flags)
+{
+	struct arglist arglist;
+	union node *argp;
+	int i;
+	int status;
+
+	emptyarglist(&arglist);
+	for (argp = n->nfor.args ; argp ; argp = argp->narg.next) {
+		oexitstatus = exitstatus;
+		expandarg(argp, &arglist, EXP_FULL | EXP_TILDE);
+	}
+
+	loopnest++;
+	status = 0;
+	for (i = 0; i < arglist.count; i++) {
+		setvar(n->nfor.var, arglist.args[i], 0);
+		evaltree(n->nfor.body, flags);
+		status = exitstatus;
+		if (evalskip) {
+			if (evalskip == SKIPCONT && --skipcount <= 0) {
+				evalskip = 0;
+				continue;
+			}
+			if (evalskip == SKIPBREAK && --skipcount <= 0)
+				evalskip = 0;
+			break;
+		}
+	}
+	loopnest--;
+	exitstatus = status;
 }
+
 
 /*
- * tilde expansion
+ * Evaluate a case statement, returning the selected tree.
  *
- * based on a version by Arnold Robbins
+ * The exit status needs care to get right.
  */
 
-static char *tilde(char *cp) {
-  char *dp;
+static union node *
+evalcase(union node *n)
+{
+	union node *cp;
+	union node *patp;
+	struct arglist arglist;
 
-  if (cp[0] == '\0')
-    dp = str_val(global("HOME"));
-  else if (cp[0] == '+' && cp[1] == '\0')
-    dp = str_val(global("PWD"));
-  else if (cp[0] == '-' && cp[1] == '\0')
-    dp = str_val(global("OLDPWD"));
-  else
-    dp = homedir(cp);
-  /* If HOME, PWD or OLDPWD are not set, don't expand ~ */
-  if (dp == null)
-    dp = NULL;
-  return dp;
+	emptyarglist(&arglist);
+	oexitstatus = exitstatus;
+	expandarg(n->ncase.expr, &arglist, EXP_TILDE);
+	for (cp = n->ncase.cases ; cp ; cp = cp->nclist.next) {
+		for (patp = cp->nclist.pattern ; patp ; patp = patp->narg.next) {
+			if (casematch(patp, arglist.args[0])) {
+				while (cp->nclist.next &&
+				    cp->type == NCLISTFALLTHRU &&
+				    cp->nclist.body == NULL)
+					cp = cp->nclist.next;
+				if (cp->nclist.next &&
+				    cp->type == NCLISTFALLTHRU)
+					return (cp);
+				if (cp->nclist.body == NULL)
+					exitstatus = 0;
+				return (cp->nclist.body);
+			}
+		}
+	}
+	exitstatus = 0;
+	return (NULL);
+}
+
+
+
+/*
+ * Kick off a subshell to evaluate a tree.
+ */
+
+static void
+evalsubshell(union node *n, int flags)
+{
+	struct job *jp;
+	int backgnd = (n->type == NBACKGND);
+
+	oexitstatus = exitstatus;
+	expredir(n->nredir.redirect);
+	if ((!backgnd && flags & EV_EXIT && !have_traps()) ||
+			forkshell(jp = makejob(n, 1), n, backgnd) == 0) {
+		if (backgnd)
+			flags &=~ EV_TESTED;
+		redirect(n->nredir.redirect, 0);
+		evaltree(n->nredir.n, flags | EV_EXIT);	/* never returns */
+	} else if (! backgnd) {
+		INTOFF;
+		exitstatus = waitforjob(jp, (int *)NULL);
+		INTON;
+	} else
+		exitstatus = 0;
+}
+
+
+/*
+ * Evaluate a redirected compound command.
+ */
+
+static void
+evalredir(union node *n, int flags)
+{
+	struct jmploc jmploc;
+	struct jmploc *savehandler;
+	volatile int in_redirect = 1;
+
+	oexitstatus = exitstatus;
+	expredir(n->nredir.redirect);
+	savehandler = handler;
+	if (setjmp(jmploc.loc)) {
+		int e;
+
+		handler = savehandler;
+		e = exception;
+		popredir();
+		if (e == EXERROR && in_redirect) {
+			FORCEINTON;
+			return;
+		}
+		longjmp(handler->loc, 1);
+	} else {
+		INTOFF;
+		handler = &jmploc;
+		redirect(n->nredir.redirect, REDIR_PUSH);
+		in_redirect = 0;
+		INTON;
+		evaltree(n->nredir.n, flags);
+	}
+	INTOFF;
+	handler = savehandler;
+	popredir();
+	INTON;
+}
+
+
+static void
+exphere(union node *redir, struct arglist *fn)
+{
+	struct jmploc jmploc;
+	struct jmploc *savehandler;
+	struct localvar *savelocalvars;
+	int need_longjmp = 0;
+	unsigned char saveoptreset;
+
+	redir->nhere.expdoc = "";
+	savelocalvars = localvars;
+	localvars = NULL;
+	saveoptreset = shellparam.reset;
+	forcelocal++;
+	savehandler = handler;
+	if (setjmp(jmploc.loc))
+		need_longjmp = exception != EXERROR;
+	else {
+		handler = &jmploc;
+		expandarg(redir->nhere.doc, fn, 0);
+		redir->nhere.expdoc = fn->args[0];
+		INTOFF;
+	}
+	handler = savehandler;
+	forcelocal--;
+	poplocalvars();
+	localvars = savelocalvars;
+	shellparam.reset = saveoptreset;
+	if (need_longjmp)
+		longjmp(handler->loc, 1);
+	INTON;
+}
+
+
+/*
+ * Compute the names of the files in a redirection list.
+ */
+
+static void
+expredir(union node *n)
+{
+	union node *redir;
+
+	for (redir = n ; redir ; redir = redir->nfile.next) {
+		struct arglist fn;
+		emptyarglist(&fn);
+		switch (redir->type) {
+		case NFROM:
+		case NTO:
+		case NFROMTO:
+		case NAPPEND:
+		case NCLOBBER:
+			expandarg(redir->nfile.fname, &fn, EXP_TILDE);
+			redir->nfile.expfname = fn.args[0];
+			break;
+		case NFROMFD:
+		case NTOFD:
+			if (redir->ndup.vname) {
+				expandarg(redir->ndup.vname, &fn, EXP_TILDE);
+				fixredir(redir, fn.args[0], 1);
+			}
+			break;
+		case NXHERE:
+			exphere(redir, &fn);
+			break;
+		}
+	}
+}
+
+
+
+/*
+ * Evaluate a pipeline.  All the processes in the pipeline are children
+ * of the process creating the pipeline.  (This differs from some versions
+ * of the shell, which make the last process in a pipeline the parent
+ * of all the rest.)
+ */
+
+static void
+evalpipe(union node *n)
+{
+	struct job *jp;
+	struct nodelist *lp;
+	int pipelen;
+	int prevfd;
+	int pip[2];
+
+	TRACE(("evalpipe(%p) called\n", (void *)n));
+	pipelen = 0;
+	for (lp = n->npipe.cmdlist ; lp ; lp = lp->next)
+		pipelen++;
+	INTOFF;
+	jp = makejob(n, pipelen);
+	prevfd = -1;
+	for (lp = n->npipe.cmdlist ; lp ; lp = lp->next) {
+		prehash(lp->n);
+		pip[1] = -1;
+		if (lp->next) {
+			if (pipe(pip) < 0) {
+				if (prevfd >= 0)
+					close(prevfd);
+				error("Pipe call failed: %s", strerror(errno));
+			}
+		}
+		if (forkshell(jp, lp->n, n->npipe.backgnd) == 0) {
+			INTON;
+			if (prevfd > 0) {
+				dup2(prevfd, 0);
+				close(prevfd);
+			}
+			if (pip[1] >= 0) {
+				if (!(prevfd >= 0 && pip[0] == 0))
+					close(pip[0]);
+				if (pip[1] != 1) {
+					dup2(pip[1], 1);
+					close(pip[1]);
+				}
+			}
+			evaltree(lp->n, EV_EXIT);
+		}
+		if (prevfd >= 0)
+			close(prevfd);
+		prevfd = pip[0];
+		if (pip[1] != -1)
+			close(pip[1]);
+	}
+	INTON;
+	if (n->npipe.backgnd == 0) {
+		INTOFF;
+		exitstatus = waitforjob(jp, (int *)NULL);
+		TRACE(("evalpipe:  job done exit status %d\n", exitstatus));
+		INTON;
+	} else
+		exitstatus = 0;
+}
+
+
+
+static int
+is_valid_fast_cmdsubst(union node *n)
+{
+
+	return (n->type == NCMD);
 }
 
 /*
- * map userid to user's home directory.
- * note that 4.3's getpw adds more than 6K to the shell,
- * and the YP version probably adds much more.
- * we might consider our own version of getpwnam() to keep the size down.
+ * Execute a command inside back quotes.  If it's a builtin command, we
+ * want to save its output in a block obtained from malloc.  Otherwise
+ * we fork off a subprocess and get the output of the command via a pipe.
+ * Should be called with interrupts off.
  */
 
-static char *homedir(char *name) {
-  struct tbl *ap;
+void
+evalbackcmd(union node *n, struct backcmd *result)
+{
+	int pip[2];
+	struct job *jp;
+	struct stackmark smark;
+	struct jmploc jmploc;
+	struct jmploc *savehandler;
+	struct localvar *savelocalvars;
+	unsigned char saveoptreset;
 
-  ap = ktenter(&homedirs, name, hash(name));
-  if (!(ap->flag & ISSET)) {
-    struct passwd *pw;
-
-    pw = getpwnam(name);
-    if (pw == NULL)
-      return NULL;
-    ap->val.s = str_save(pw->pw_dir, APERM);
-    ap->flag |= DEFINED | ISSET | ALLOC;
-  }
-  return ap->val.s;
+	result->fd = -1;
+	result->buf = NULL;
+	result->nleft = 0;
+	result->jp = NULL;
+	if (n == NULL) {
+		exitstatus = 0;
+		return;
+	}
+	setstackmark(&smark);
+	exitstatus = oexitstatus;
+	if (is_valid_fast_cmdsubst(n)) {
+		savelocalvars = localvars;
+		localvars = NULL;
+		saveoptreset = shellparam.reset;
+		forcelocal++;
+		savehandler = handler;
+		if (setjmp(jmploc.loc)) {
+			if (exception == EXERROR)
+				/* nothing */;
+			else if (exception != 0) {
+				handler = savehandler;
+				forcelocal--;
+				poplocalvars();
+				localvars = savelocalvars;
+				shellparam.reset = saveoptreset;
+				longjmp(handler->loc, 1);
+			}
+		} else {
+			handler = &jmploc;
+			evalcommand(n, EV_BACKCMD, result);
+		}
+		handler = savehandler;
+		forcelocal--;
+		poplocalvars();
+		localvars = savelocalvars;
+		shellparam.reset = saveoptreset;
+	} else {
+		if (pipe(pip) < 0)
+			error("Pipe call failed: %s", strerror(errno));
+		jp = makejob(n, 1);
+		if (forkshell(jp, n, FORK_NOJOB) == 0) {
+			FORCEINTON;
+			close(pip[0]);
+			if (pip[1] != 1) {
+				dup2(pip[1], 1);
+				close(pip[1]);
+			}
+			evaltree(n, EV_EXIT);
+		}
+		close(pip[1]);
+		result->fd = pip[0];
+		result->jp = jp;
+	}
+	popstackmark(&smark);
+	TRACE(("evalbackcmd done: fd=%d buf=%p nleft=%d jp=%p\n",
+		result->fd, result->buf, result->nleft, result->jp));
 }
 
-static void alt_expand(XPtrV *wp, char *start, char *exp_start, char *end,
-                       int fdo) {
-  int count = 0;
-  char *brace_start, *brace_end, *comma = NULL;
-  char *field_start;
-  char *p;
+static int
+mustexpandto(const char *argtext, const char *mask)
+{
+	for (;;) {
+		if (*argtext == CTLQUOTEMARK || *argtext == CTLQUOTEEND) {
+			argtext++;
+			continue;
+		}
+		if (*argtext == CTLESC)
+			argtext++;
+		else if (BASESYNTAX[(int)*argtext] == CCTL)
+			return (0);
+		if (*argtext != *mask)
+			return (0);
+		if (*argtext == '\0')
+			return (1);
+		argtext++;
+		mask++;
+	}
+}
 
-  /* search for open brace */
-  for (p = exp_start; (p = strchr(p, MAGIC)) && p[1] != OBRACE; p += 2)
-    ;
-  brace_start = p;
+static int
+isdeclarationcmd(struct narg *arg)
+{
+	int have_command = 0;
 
-  /* find matching close brace, if any */
-  if (p) {
-    comma = NULL;
-    count = 1;
-    for (p += 2; *p && count; p++) {
-      if (ISMAGIC(*p)) {
-        if (*++p == OBRACE)
-          count++;
-        else if (*p == CBRACE)
-          --count;
-        else if (*p == ',' && count == 1)
-          comma = p;
-      }
-    }
-  }
-  /* no valid expansions... */
-  if (!p || count != 0) {
-    /* Note that given a{{b,c} we do not expand anything (this is
-     * what at&t ksh does.  This may be changed to do the {b,c}
-     * expansion. }
-     */
-    if (fdo & DOGLOB)
-      glob(start, wp, fdo & DOMARKDIRS);
-    else
-      XPput(*wp, debunk(start, start, end - start));
-    return;
-  }
-  brace_end = p;
-  if (!comma) {
-    alt_expand(wp, start, brace_end, end, fdo);
-    return;
-  }
+	if (arg == NULL)
+		return (0);
+	while (mustexpandto(arg->text, "command")) {
+		have_command = 1;
+		arg = &arg->next->narg;
+		if (arg == NULL)
+			return (0);
+		/*
+		 * To also allow "command -p" and "command --" as part of
+		 * a declaration command, add code here.
+		 * We do not do this, as ksh does not do it either and it
+		 * is not required by POSIX.
+		 */
+	}
+	return (mustexpandto(arg->text, "export") ||
+	    mustexpandto(arg->text, "readonly") ||
+	    (mustexpandto(arg->text, "local") &&
+		(have_command || !isfunc("local"))));
+}
 
-  /* expand expression */
-  field_start = brace_start + 2;
-  count = 1;
-  for (p = brace_start + 2; p != brace_end; p++) {
-    if (ISMAGIC(*p)) {
-      if (*++p == OBRACE)
-        count++;
-      else if ((*p == CBRACE && --count == 0) || (*p == ',' && count == 1)) {
-        char *new;
-        int l1, l2, l3;
+static void
+xtracecommand(struct arglist *varlist, int argc, char **argv)
+{
+	char sep = 0;
+	const char *text, *p, *ps4;
+	int i;
 
-        l1 = brace_start - start;
-        l2 = (p - 1) - field_start;
-        l3 = end - brace_end;
-        new = alloc(l1 + l2 + l3 + 1, ATEMP);
-        memcpy(new, start, l1);
-        memcpy(new + l1, field_start, l2);
-        memcpy(new + l1 + l2, brace_end, l3);
-        new[l1 + l2 + l3] = '\0';
-        alt_expand(wp, new, new + l1, new + l1 + l2 + l3, fdo);
-        field_start = p + 1;
-      }
-    }
-  }
-  return;
+	ps4 = expandstr(ps4val());
+	out2str(ps4 != NULL ? ps4 : ps4val());
+	for (i = 0; i < varlist->count; i++) {
+		text = varlist->args[i];
+		if (sep != 0)
+			out2c(' ');
+		p = strchr(text, '=');
+		if (p != NULL) {
+			p++;
+			outbin(text, p - text, out2);
+			out2qstr(p);
+		} else
+			out2qstr(text);
+		sep = ' ';
+	}
+	for (i = 0; i < argc; i++) {
+		text = argv[i];
+		if (sep != 0)
+			out2c(' ');
+		out2qstr(text);
+		sep = ' ';
+	}
+	out2c('\n');
+	flushout(&errout);
 }
 
 /*
- * Copy the given variable if it's flagged as read-only.
- * Such variables have static storage and only one can therefore be referenced
- * at a time.
- * This is necessary in order to allow variable expansion expressions to refer
- * to multiple read-only variables.
+ * Check if a builtin can safely be executed in the same process,
+ * even though it should be in a subshell (command substitution).
+ * Note that jobid, jobs, times and trap can show information not
+ * available in a child process; this is deliberate.
+ * The arguments should already have been expanded.
  */
-static struct tbl *varcpy(struct tbl *vp) {
-  struct tbl *cpy;
+static int
+safe_builtin(int idx, int argc, char **argv)
+{
+	/* Generated from builtins.def. */
+	if (safe_builtin_always(idx))
+		return (1);
+	if (idx == EXPORTCMD || idx == TRAPCMD || idx == ULIMITCMD ||
+	    idx == UMASKCMD)
+		return (argc <= 1 || (argc == 2 && argv[1][0] == '-'));
+	if (idx == SETCMD)
+		return (argc <= 1 || (argc == 2 && (argv[1][0] == '-' ||
+		    argv[1][0] == '+') && argv[1][1] == 'o' &&
+		    argv[1][2] == '\0'));
+	return (0);
+}
 
-  if (vp == NULL || (vp->flag & RDONLY) == 0)
-    return vp;
+/*
+ * Execute a simple command.
+ * Note: This may or may not return if (flags & EV_EXIT).
+ */
 
-  cpy = alloc(sizeof(struct tbl), ATEMP);
-  memcpy(cpy, vp, sizeof(struct tbl));
-  return cpy;
+static void
+evalcommand(union node *cmd, int flags, struct backcmd *backcmd)
+{
+	union node *argp;
+	struct arglist arglist;
+	struct arglist varlist;
+	char **argv;
+	int argc;
+	char **envp;
+	int varflag;
+	int mode;
+	int pip[2];
+	struct cmdentry cmdentry;
+	struct job *jp;
+	struct jmploc jmploc;
+	struct jmploc *savehandler;
+	char *savecmdname;
+	struct shparam saveparam;
+	struct localvar *savelocalvars;
+	struct parsefile *savetopfile;
+	volatile int e;
+	char *lastarg;
+	int signaled;
+	int do_clearcmdentry;
+	const char *path = pathval();
+	int i;
+
+	/* First expand the arguments. */
+	TRACE(("evalcommand(%p, %d) called\n", (void *)cmd, flags));
+	emptyarglist(&arglist);
+	emptyarglist(&varlist);
+	varflag = 1;
+	jp = NULL;
+	do_clearcmdentry = 0;
+	oexitstatus = exitstatus;
+	exitstatus = 0;
+	/* Add one slot at the beginning for tryexec(). */
+	appendarglist(&arglist, nullstr);
+	for (argp = cmd->ncmd.args ; argp ; argp = argp->narg.next) {
+		if (varflag && isassignment(argp->narg.text)) {
+			expandarg(argp, varflag == 1 ? &varlist : &arglist,
+			    EXP_VARTILDE);
+			continue;
+		} else if (varflag == 1)
+			varflag = isdeclarationcmd(&argp->narg) ? 2 : 0;
+		expandarg(argp, &arglist, EXP_FULL | EXP_TILDE);
+	}
+	appendarglist(&arglist, nullstr);
+	expredir(cmd->ncmd.redirect);
+	argc = arglist.count - 2;
+	argv = &arglist.args[1];
+
+	argv[argc] = NULL;
+	lastarg = NULL;
+	if (iflag && funcnest == 0 && argc > 0)
+		lastarg = argv[argc - 1];
+
+	/* Print the command if xflag is set. */
+	if (xflag)
+		xtracecommand(&varlist, argc, argv);
+
+	/* Now locate the command. */
+	if (argc == 0) {
+		/* Variable assignment(s) without command */
+		cmdentry.cmdtype = CMDBUILTIN;
+		cmdentry.u.index = BLTINCMD;
+		cmdentry.special = 0;
+	} else {
+		static const char PATH[] = "PATH=";
+		int cmd_flags = 0, bltinonly = 0;
+
+		/*
+		 * Modify the command lookup path, if a PATH= assignment
+		 * is present
+		 */
+		for (i = 0; i < varlist.count; i++)
+			if (strncmp(varlist.args[i], PATH, sizeof(PATH) - 1) == 0) {
+				path = varlist.args[i] + sizeof(PATH) - 1;
+				/*
+				 * On `PATH=... command`, we need to make
+				 * sure that the command isn't using the
+				 * non-updated hash table of the outer PATH
+				 * setting and we need to make sure that
+				 * the hash table isn't filled with items
+				 * from the temporary setting.
+				 *
+				 * It would be better to forbid using and
+				 * updating the table while this command
+				 * runs, by the command finding mechanism
+				 * is heavily integrated with hash handling,
+				 * so we just delete the hash before and after
+				 * the command runs. Partly deleting like
+				 * changepatch() does doesn't seem worth the
+				 * booking effort, since most such runs add
+				 * directories in front of the new PATH.
+				 */
+				clearcmdentry();
+				do_clearcmdentry = 1;
+			}
+
+		for (;;) {
+			if (bltinonly) {
+				cmdentry.u.index = find_builtin(*argv, &cmdentry.special);
+				if (cmdentry.u.index < 0) {
+					cmdentry.u.index = BLTINCMD;
+					argv--;
+					argc++;
+					break;
+				}
+			} else
+				find_command(argv[0], &cmdentry, cmd_flags, path);
+			/* implement the bltin and command builtins here */
+			if (cmdentry.cmdtype != CMDBUILTIN)
+				break;
+			if (cmdentry.u.index == BLTINCMD) {
+				if (argc == 1)
+					break;
+				argv++;
+				argc--;
+				bltinonly = 1;
+			} else if (cmdentry.u.index == COMMANDCMD) {
+				if (argc == 1)
+					break;
+				if (!strcmp(argv[1], "-p")) {
+					if (argc == 2)
+						break;
+					if (argv[2][0] == '-') {
+						if (strcmp(argv[2], "--"))
+							break;
+						if (argc == 3)
+							break;
+						argv += 3;
+						argc -= 3;
+					} else {
+						argv += 2;
+						argc -= 2;
+					}
+					path = _PATH_STDPATH;
+					clearcmdentry();
+					do_clearcmdentry = 1;
+				} else if (!strcmp(argv[1], "--")) {
+					if (argc == 2)
+						break;
+					argv += 2;
+					argc -= 2;
+				} else if (argv[1][0] == '-')
+					break;
+				else {
+					argv++;
+					argc--;
+				}
+				cmd_flags |= DO_NOFUNC;
+				bltinonly = 0;
+			} else
+				break;
+		}
+		/*
+		 * Special builtins lose their special properties when
+		 * called via 'command'.
+		 */
+		if (cmd_flags & DO_NOFUNC)
+			cmdentry.special = 0;
+	}
+
+	/* Fork off a child process if necessary. */
+	if (((cmdentry.cmdtype == CMDNORMAL || cmdentry.cmdtype == CMDUNKNOWN)
+	    && ((flags & EV_EXIT) == 0 || have_traps()))
+	 || ((flags & EV_BACKCMD) != 0
+	    && (cmdentry.cmdtype != CMDBUILTIN ||
+		 !safe_builtin(cmdentry.u.index, argc, argv)))) {
+		jp = makejob(cmd, 1);
+		mode = FORK_FG;
+		if (flags & EV_BACKCMD) {
+			mode = FORK_NOJOB;
+			if (pipe(pip) < 0)
+				error("Pipe call failed: %s", strerror(errno));
+		}
+		if (cmdentry.cmdtype == CMDNORMAL &&
+		    cmd->ncmd.redirect == NULL &&
+		    varlist.count == 0 &&
+		    (mode == FORK_FG || mode == FORK_NOJOB) &&
+		    !disvforkset() && !iflag && !mflag) {
+			vforkexecshell(jp, argv, environment(), path,
+			    cmdentry.u.index, flags & EV_BACKCMD ? pip : NULL);
+			goto parent;
+		}
+		if (forkshell(jp, cmd, mode) != 0)
+			goto parent;	/* at end of routine */
+		if (flags & EV_BACKCMD) {
+			FORCEINTON;
+			close(pip[0]);
+			if (pip[1] != 1) {
+				dup2(pip[1], 1);
+				close(pip[1]);
+			}
+			flags &= ~EV_BACKCMD;
+		}
+		flags |= EV_EXIT;
+	}
+
+	/* This is the child process if a fork occurred. */
+	/* Execute the command. */
+	if (cmdentry.cmdtype == CMDFUNCTION) {
+#ifdef DEBUG
+		trputs("Shell function:  ");  trargs(argv);
+#endif
+		saveparam = shellparam;
+		shellparam.malloc = 0;
+		shellparam.reset = 1;
+		shellparam.nparam = argc - 1;
+		shellparam.p = argv + 1;
+		shellparam.optp = NULL;
+		shellparam.optnext = NULL;
+		INTOFF;
+		savelocalvars = localvars;
+		localvars = NULL;
+		reffunc(cmdentry.u.func);
+		savehandler = handler;
+		if (setjmp(jmploc.loc)) {
+			popredir();
+			unreffunc(cmdentry.u.func);
+			poplocalvars();
+			localvars = savelocalvars;
+			freeparam(&shellparam);
+			shellparam = saveparam;
+			funcnest--;
+			handler = savehandler;
+			longjmp(handler->loc, 1);
+		}
+		handler = &jmploc;
+		funcnest++;
+		redirect(cmd->ncmd.redirect, REDIR_PUSH);
+		INTON;
+		for (i = 0; i < varlist.count; i++)
+			mklocal(varlist.args[i]);
+		exitstatus = oexitstatus;
+		evaltree(getfuncnode(cmdentry.u.func),
+		    flags & (EV_TESTED | EV_EXIT));
+		INTOFF;
+		unreffunc(cmdentry.u.func);
+		poplocalvars();
+		localvars = savelocalvars;
+		freeparam(&shellparam);
+		shellparam = saveparam;
+		handler = savehandler;
+		funcnest--;
+		popredir();
+		INTON;
+		if (evalskip == SKIPRETURN) {
+			evalskip = 0;
+			skipcount = 0;
+		}
+		if (jp)
+			exitshell(exitstatus);
+	} else if (cmdentry.cmdtype == CMDBUILTIN) {
+#ifdef DEBUG
+		trputs("builtin command:  ");  trargs(argv);
+#endif
+		mode = (cmdentry.u.index == EXECCMD)? 0 : REDIR_PUSH;
+		if (flags == EV_BACKCMD) {
+			memout.nextc = memout.buf;
+			mode |= REDIR_BACKQ;
+		}
+		savecmdname = commandname;
+		savetopfile = getcurrentfile();
+		cmdenviron = &varlist;
+		e = -1;
+		savehandler = handler;
+		if (setjmp(jmploc.loc)) {
+			e = exception;
+			if (e == EXINT)
+				exitstatus = SIGINT+128;
+			goto cmddone;
+		}
+		handler = &jmploc;
+		redirect(cmd->ncmd.redirect, mode);
+		outclearerror(out1);
+		/*
+		 * If there is no command word, redirection errors should
+		 * not be fatal but assignment errors should.
+		 */
+		if (argc == 0)
+			cmdentry.special = 1;
+		listsetvar(cmdenviron, cmdentry.special ? 0 : VNOSET);
+		if (argc > 0)
+			bltinsetlocale();
+		commandname = argv[0];
+		argptr = argv + 1;
+		nextopt_optptr = NULL;		/* initialize nextopt */
+		builtin_flags = flags;
+		exitstatus = (*builtinfunc[cmdentry.u.index])(argc, argv);
+		flushall();
+		if (outiserror(out1)) {
+			warning("write error on stdout");
+			if (exitstatus == 0 || exitstatus == 1)
+				exitstatus = 2;
+		}
+cmddone:
+		if (argc > 0)
+			bltinunsetlocale();
+		cmdenviron = NULL;
+		out1 = &output;
+		out2 = &errout;
+		freestdout();
+		handler = savehandler;
+		commandname = savecmdname;
+		if (jp)
+			exitshell(exitstatus);
+		if (flags == EV_BACKCMD) {
+			backcmd->buf = memout.buf;
+			backcmd->nleft = memout.buf != NULL ?
+			    memout.nextc - memout.buf : 0;
+			memout.buf = NULL;
+			memout.nextc = NULL;
+			memout.bufend = NULL;
+			memout.bufsize = 64;
+		}
+		if (cmdentry.u.index != EXECCMD)
+			popredir();
+		if (e != -1) {
+			if (e != EXERROR || cmdentry.special)
+				exraise(e);
+			popfilesupto(savetopfile);
+			if (flags != EV_BACKCMD)
+				FORCEINTON;
+		}
+	} else {
+#ifdef DEBUG
+		trputs("normal command:  ");  trargs(argv);
+#endif
+		redirect(cmd->ncmd.redirect, 0);
+		for (i = 0; i < varlist.count; i++)
+			setvareq(varlist.args[i], VEXPORT|VSTACK);
+		envp = environment();
+		shellexec(argv, envp, path, cmdentry.u.index);
+		/*NOTREACHED*/
+	}
+	goto out;
+
+parent:	/* parent process gets here (if we forked) */
+	if (mode == FORK_FG) {	/* argument to fork */
+		INTOFF;
+		exitstatus = waitforjob(jp, &signaled);
+		INTON;
+		if (iflag && loopnest > 0 && signaled) {
+			evalskip = SKIPBREAK;
+			skipcount = loopnest;
+		}
+	} else if (mode == FORK_NOJOB) {
+		backcmd->fd = pip[0];
+		close(pip[1]);
+		backcmd->jp = jp;
+	}
+
+out:
+	if (lastarg)
+		setvar("_", lastarg, 0);
+	if (do_clearcmdentry)
+		clearcmdentry();
+}
+
+
+
+/*
+ * Search for a command.  This is called before we fork so that the
+ * location of the command will be available in the parent as well as
+ * the child.  The check for "goodname" is an overly conservative
+ * check that the name will not be subject to expansion.
+ */
+
+static void
+prehash(union node *n)
+{
+	struct cmdentry entry;
+
+	if (n && n->type == NCMD && n->ncmd.args)
+		if (goodname(n->ncmd.args->narg.text))
+			find_command(n->ncmd.args->narg.text, &entry, 0,
+				     pathval());
+}
+
+
+
+/*
+ * Builtin commands.  Builtin commands whose functions are closely
+ * tied to evaluation are implemented here.
+ */
+
+/*
+ * No command given, a bltin command with no arguments, or a bltin command
+ * with an invalid name.
+ */
+
+int
+bltincmd(int argc, char **argv)
+{
+	if (argc > 1) {
+		out2fmt_flush("%s: not found\n", argv[1]);
+		return 127;
+	}
+	/*
+	 * Preserve exitstatus of a previous possible command substitution
+	 * as POSIX mandates
+	 */
+	return exitstatus;
+}
+
+
+/*
+ * Handle break and continue commands.  Break, continue, and return are
+ * all handled by setting the evalskip flag.  The evaluation routines
+ * above all check this flag, and if it is set they start skipping
+ * commands rather than executing them.  The variable skipcount is
+ * the number of loops to break/continue, or the number of function
+ * levels to return.  (The latter is always 1.)  It should probably
+ * be an error to break out of more loops than exist, but it isn't
+ * in the standard shell so we don't make it one here.
+ */
+
+int
+breakcmd(int argc, char **argv)
+{
+	long n;
+	char *end;
+
+	if (argc > 1) {
+		/* Allow arbitrarily large numbers. */
+		n = strtol(argv[1], &end, 10);
+		if (!is_digit(argv[1][0]) || *end != '\0')
+			error("Illegal number: %s", argv[1]);
+	} else
+		n = 1;
+	if (n > loopnest)
+		n = loopnest;
+	if (n > 0) {
+		evalskip = (**argv == 'c')? SKIPCONT : SKIPBREAK;
+		skipcount = n;
+	}
+	return 0;
+}
+
+/*
+ * The `command' command.
+ */
+int
+commandcmd(int argc __unused, char **argv __unused)
+{
+	const char *path;
+	int ch;
+	int cmd = -1;
+
+	path = bltinlookup("PATH", 1);
+
+	while ((ch = nextopt("pvV")) != '\0') {
+		switch (ch) {
+		case 'p':
+			path = _PATH_STDPATH;
+			break;
+		case 'v':
+			cmd = TYPECMD_SMALLV;
+			break;
+		case 'V':
+			cmd = TYPECMD_BIGV;
+			break;
+		}
+	}
+
+	if (cmd != -1) {
+		if (*argptr == NULL || argptr[1] != NULL)
+			error("wrong number of arguments");
+		return typecmd_impl(2, argptr - 1, cmd, path);
+	}
+	if (*argptr != NULL)
+		error("commandcmd bad call");
+
+	/*
+	 * Do nothing successfully if no command was specified;
+	 * ksh also does this.
+	 */
+	return 0;
+}
+
+
+/*
+ * The return command.
+ */
+
+int
+returncmd(int argc, char **argv)
+{
+	int ret = argc > 1 ? number(argv[1]) : oexitstatus;
+
+	evalskip = SKIPRETURN;
+	skipcount = 1;
+	return ret;
+}
+
+
+int
+falsecmd(int argc __unused, char **argv __unused)
+{
+	return 1;
+}
+
+
+int
+truecmd(int argc __unused, char **argv __unused)
+{
+	return 0;
+}
+
+
+int
+execcmd(int argc, char **argv)
+{
+	int i;
+
+	/*
+	 * Because we have historically not supported any options,
+	 * only treat "--" specially.
+	 */
+	if (argc > 1 && strcmp(argv[1], "--") == 0)
+		argc--, argv++;
+	if (argc > 1) {
+		iflag = 0;		/* exit on error */
+		mflag = 0;
+		optschanged();
+		for (i = 0; i < cmdenviron->count; i++)
+			setvareq(cmdenviron->args[i], VEXPORT|VSTACK);
+		shellexec(argv + 1, environment(), pathval(), 0);
+
+	}
+	return 0;
+}
+
+
+int
+timescmd(int argc __unused, char **argv __unused)
+{
+	struct rusage ru;
+	long shumins, shsmins, chumins, chsmins;
+	double shusecs, shssecs, chusecs, chssecs;
+
+	if (getrusage(RUSAGE_SELF, &ru) < 0)
+		return 1;
+	shumins = ru.ru_utime.tv_sec / 60;
+	shusecs = ru.ru_utime.tv_sec % 60 + ru.ru_utime.tv_usec / 1000000.;
+	shsmins = ru.ru_stime.tv_sec / 60;
+	shssecs = ru.ru_stime.tv_sec % 60 + ru.ru_stime.tv_usec / 1000000.;
+	if (getrusage(RUSAGE_CHILDREN, &ru) < 0)
+		return 1;
+	chumins = ru.ru_utime.tv_sec / 60;
+	chusecs = ru.ru_utime.tv_sec % 60 + ru.ru_utime.tv_usec / 1000000.;
+	chsmins = ru.ru_stime.tv_sec / 60;
+	chssecs = ru.ru_stime.tv_sec % 60 + ru.ru_stime.tv_usec / 1000000.;
+	out1fmt("%ldm%.3fs %ldm%.3fs\n%ldm%.3fs %ldm%.3fs\n", shumins,
+	    shusecs, shsmins, shssecs, chumins, chusecs, chsmins, chssecs);
+	return 0;
 }

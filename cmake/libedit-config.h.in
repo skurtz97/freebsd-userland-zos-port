@@ -1,0 +1,22 @@
+/* Generated for the vendored FreeBSD contrib/libedit. */
+#cmakedefine01 HAVE_CURSES_H
+#cmakedefine01 HAVE_NCURSES_H
+#cmakedefine01 HAVE_GETPW_R_POSIX
+#cmakedefine01 HAVE_GETPW_R_DRAFT
+#cmakedefine01 HAVE_ISSETUGID
+#cmakedefine01 HAVE_STRUCT_DIRENT_D_NAMLEN
+#cmakedefine01 HAVE_SYS_CDEFS_H
+#cmakedefine01 HAVE_TERMCAP_H
+#cmakedefine01 HAVE_TERM_H
+#include <stddef.h>
+#include <stdint.h>
+#include "sys.h"
+
+#if !HAVE_ISSETUGID
+/* glibc has no issetugid(); a POSIX programme can compute the answer. */
+int fsh_issetugid(void);
+#define issetugid() fsh_issetugid()
+#endif
+/* FreeBSD's <vis.h>; a stub is provided by src/compat/vis.c when the
+ * host has no libc version (Linux, z/OS). */
+#include <vis.h>

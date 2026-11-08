@@ -1,240 +1,301 @@
 cmake_minimum_required(VERSION 3.20)
 project(freebsd_userland_zos_port VERSION 0.1.0 LANGUAGES C)
 
-# fsh: a z/OS Korn shell. oksh 7.9 (pdksh lineage) as the engine, with a
-# z/OS layer in src/zos_builtins.c and src/zos_spawn.c.  See
-# docs/direction.md for the rules and docs/merge.md for what came from
-# where.
-#
-# Sources in src/ keep their upstream oksh names, so a rebase against the
-# oksh-7.9 pin (docs/merge.md) stays a mechanical diff. The oksh, dash and
-# ksh93 vendor checkouts were removed after the benchmark answered its
-# question; only the FreeBSD sh reference is kept.
+# fsh: FreeBSD bin/sh for z/OS UNIX, built from the FreeBSD userland
+# source pin and a vendored FreeBSD contrib/libedit.  The project name
+# is the repository name; the binary is fsh.
 
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
-set(CMAKE_C_EXTENSIONS ON)        # oksh is not a strict -std=c99 tree
+set(CMAKE_C_EXTENSIONS ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Debug CACHE STRING "" FORCE)
 endif()
 
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
-# ---- Options ---------------------------------------------------------
-
-option(FSH_EDITOR "Build emacs/vi line editing" ON)
-option(FSH_SMALL "Compile out optional features (-DSMALL)" OFF)
-option(FSH_INSTALL_AS_KSH "Install the binary as ksh instead of fsh" OFF)
 option(FSH_STRICT "Treat warnings as errors" OFF)
 option(FSH_ZOS "Target z/OS UNIX (normally set by cmake/toolchain-zos.cmake)" OFF)
-
-# ---- The shell -------------------------------------------------------
+option(FSH_WITH_LIBEDIT "Build the vendored FreeBSD libedit" ON)
 
 set(FSH_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
+set(FSH_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
+set(FSH_GEN_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
+set(FSH_LIBEDIT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/vendor/libedit)
+set(FSH_LIBEDIT_GEN_DIR ${CMAKE_CURRENT_BINARY_DIR}/libedit-generated)
+set(FSH_LIBEDIT_STAGE ${CMAKE_CURRENT_BINARY_DIR}/libedit-staged)
+file(MAKE_DIRECTORY ${FSH_GEN_DIR} ${FSH_LIBEDIT_GEN_DIR})
 
-# ---- Curses (line editing) -------------------------------------------
-# oksh probes -lcurses, -lncurses and -lncursesw. On z/OS the only
-# terminal library is zopen's wide-character ncurses.
-#
-# This runs BEFORE pconfig.h is generated, because HAVE_CURSES in
-# pconfig.h is what gates #include <curses.h> in emacs.c, vi.c and
-# var.c. It cannot touch the target here -- the target does not exist
-# yet -- so the results are applied further down.
+find_program(FSH_BUILD_SHELL NAMES bash sh)
+if(NOT FSH_BUILD_SHELL)
+  set(FSH_BUILD_SHELL sh)
+endif()
 
-if(FSH_EDITOR)
-  # The z/OS toolchain may already have located the static, wide ncurses
-  # that FindCurses cannot see; don't look for a second answer.
-  if(CURSES_LIBRARY AND CURSES_INCLUDE_PATH)
-    set(CURSES_FOUND TRUE)
-    set(CURSES_LIBRARIES "${CURSES_LIBRARY}")
-    set(CURSES_INCLUDE_DIRS "${CURSES_INCLUDE_PATH}")
-    if(FSH_CURSES_SHIM)
-      list(APPEND CURSES_INCLUDE_DIRS "${FSH_CURSES_SHIM}")
+# ---- Curses and libedit ---------------------------------------------
+
+if(FSH_WITH_LIBEDIT)
+  if(FSH_ZOS)
+    # The z/OS toolchain locates zopen's static wide ncurses and passes
+    # CURSES_LIBRARY / CURSES_INCLUDE_PATH.  If it did not, build
+    # without line editing rather than failing the whole shell.
+    if(CURSES_LIBRARY)
+      set(CURSES_LIBRARIES "${CURSES_LIBRARY}")
+    endif()
+    if(NOT CURSES_LIBRARIES)
+      message(WARNING
+        "fsh: no z/OS ncurses found; building without libedit/history.")
+      set(FSH_WITH_LIBEDIT OFF)
     endif()
   else()
-    find_package(Curses)
-  endif()
-  if(NOT CURSES_FOUND)
-    # A shell without line editing still builds; failing the whole
-    # build because a terminal library was not found is the wrong trade.
-    message(WARNING
-      "fsh: no curses found, building WITHOUT line editing.\n"
-      "       Set -DCURSES_INCLUDE_PATH=... -DCURSES_LIBRARY=... "
-      "or --disable-curses to silence this.")
-    set(FSH_EDITOR OFF)
+    find_package(Curses REQUIRED)
   endif()
 endif()
 
-# Test invocation. Three host differences, all measured on z/OS:
-#   - fsh writes IBM-1047 there, so the tests decode its output before
-#     matching ASCII expectations (tests/run-c.sh, FSH_DECODE);
-#   - fsh *reads* IBM-1047 there, and an EBCDIC shell cannot parse
-#     ASCII bytes as shell syntax, so each test script is converted to
-#     IBM-1047 before the shell sees it (tests/run.sh, FSH_ENCODE);
-#   - /bin/sh cannot read this repo's UTF-8-tagged scripts at all
-#     ("FSUM7332 syntax error: got (", with or without _BPXK_AUTOCVT),
-#     so the runner is bash, which reads them as they are. bash is
-#     development tooling here, not a runtime dependency of fsh.
-if(FSH_ZOS)
-  set(FSH_DECODE IBM-1047)
-  set(FSH_ENCODE IBM-1047)
-  find_program(FSH_TEST_SHELL NAMES bash HINTS
-    /usr/local/zopen/usr/local/bin
-    "${FSH_ZOPEN_ROOT}/usr/local/bin")
-  if(NOT FSH_TEST_SHELL)
-    message(WARNING
-      "fsh: bash not found; ctest on z/OS needs it to run "
-      "tests/run-c.sh (see docs/build.md).")
+if(FSH_WITH_LIBEDIT)
+  include(CheckIncludeFile)
+  include(CheckFunctionExists)
+  include(CheckStructHasMember)
+  if(NOT FSH_ZOS)
+    set(CMAKE_REQUIRED_DEFINITIONS -D_GNU_SOURCE)
   endif()
-else()
-  set(FSH_DECODE "")
-  set(FSH_ENCODE "")
-  find_program(FSH_TEST_SHELL NAMES sh HINTS /bin)
+  check_include_file(curses.h FSH_LIBEDIT_HAVE_CURSES_H)
+  check_include_file(ncurses.h FSH_LIBEDIT_HAVE_NCURSES_H)
+  check_include_file(termcap.h FSH_LIBEDIT_HAVE_TERMCAP_H)
+  check_include_file(term.h FSH_LIBEDIT_HAVE_TERM_H)
+  check_include_file(sys/cdefs.h FSH_LIBEDIT_HAVE_SYS_CDEFS_H)
+  check_function_exists(getpwnam_r FSH_LIBEDIT_HAVE_GETPW_R_POSIX)
+  check_function_exists(issetugid FSH_LIBEDIT_HAVE_ISSETUGID)
+  check_struct_has_member("struct dirent" d_namlen dirent.h
+    FSH_LIBEDIT_HAVE_DIRENT_D_NAMLEN)
+
+  set(HAVE_CURSES_H ${FSH_LIBEDIT_HAVE_CURSES_H})
+  set(HAVE_NCURSES_H ${FSH_LIBEDIT_HAVE_NCURSES_H})
+  set(HAVE_TERMCAP_H ${FSH_LIBEDIT_HAVE_TERMCAP_H})
+  set(HAVE_TERM_H ${FSH_LIBEDIT_HAVE_TERM_H})
+  set(HAVE_SYS_CDEFS_H ${FSH_LIBEDIT_HAVE_SYS_CDEFS_H})
+  set(HAVE_GETPW_R_POSIX ${FSH_LIBEDIT_HAVE_GETPW_R_POSIX})
+  set(HAVE_GETPW_R_DRAFT 0)
+  set(HAVE_ISSETUGID ${FSH_LIBEDIT_HAVE_ISSETUGID})
+  set(HAVE_STRUCT_DIRENT_D_NAMLEN ${FSH_LIBEDIT_HAVE_DIRENT_D_NAMLEN})
+  # FreeBSD ships config.h checked in. Linux needs different answers,
+  # and the C preprocessor resolves "config.h" from the .c's own
+  # directory first, so the build stages a copy of the vendor source
+  # with the generated config.h dropped in. The submodule stays clean;
+  # on z/OS the staged copy gets the z/OS config.h instead.
+  file(REMOVE_RECURSE ${FSH_LIBEDIT_STAGE})
+  file(COPY ${FSH_LIBEDIT_DIR}/ DESTINATION ${FSH_LIBEDIT_STAGE}
+    FILES_MATCHING PATTERN "*")
+  configure_file(cmake/libedit-config.h.in
+    ${FSH_LIBEDIT_STAGE}/config.h @ONLY)
+
+  set(FSH_LIBEDIT_SOURCES
+    ${FSH_LIBEDIT_STAGE}/chared.c
+    ${FSH_LIBEDIT_STAGE}/chartype.c
+    ${FSH_LIBEDIT_STAGE}/common.c
+    ${FSH_LIBEDIT_STAGE}/el.c
+    ${FSH_LIBEDIT_STAGE}/eln.c
+    ${FSH_LIBEDIT_STAGE}/emacs.c
+    ${FSH_LIBEDIT_STAGE}/filecomplete.c
+    ${FSH_LIBEDIT_STAGE}/hist.c
+    ${FSH_LIBEDIT_STAGE}/history.c
+    ${FSH_LIBEDIT_STAGE}/historyn.c
+    ${FSH_LIBEDIT_STAGE}/keymacro.c
+    ${FSH_LIBEDIT_STAGE}/literal.c
+    ${FSH_LIBEDIT_STAGE}/map.c
+    ${FSH_LIBEDIT_STAGE}/parse.c
+    ${FSH_LIBEDIT_STAGE}/prompt.c
+    ${FSH_LIBEDIT_STAGE}/read.c
+    ${FSH_LIBEDIT_STAGE}/readline.c
+    ${FSH_LIBEDIT_STAGE}/refresh.c
+    ${FSH_LIBEDIT_STAGE}/search.c
+    ${FSH_LIBEDIT_STAGE}/sig.c
+    ${FSH_LIBEDIT_STAGE}/terminal.c
+    ${FSH_LIBEDIT_STAGE}/tokenizer.c
+    ${FSH_LIBEDIT_STAGE}/tokenizern.c
+    ${FSH_LIBEDIT_STAGE}/tty.c
+    ${FSH_LIBEDIT_STAGE}/vi.c)
+
+  function(fsh_libedit_header out mode inputs)
+    add_custom_command(OUTPUT ${FSH_LIBEDIT_GEN_DIR}/${out}
+      COMMAND ${CMAKE_COMMAND}
+        -DMAKELIST=${FSH_LIBEDIT_STAGE}/makelist
+        -DOUTPUT=${FSH_LIBEDIT_GEN_DIR}/${out}
+        -DMODE=${mode}
+        "-DINPUTS=${inputs}"
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gen-libedit-header.cmake
+      DEPENDS ${FSH_LIBEDIT_STAGE}/makelist ${ARGN}
+      VERBATIM)
+  endfunction()
+
+  fsh_libedit_header(vi.h -h "${FSH_LIBEDIT_STAGE}/vi.c"
+    ${FSH_LIBEDIT_STAGE}/vi.c)
+  fsh_libedit_header(emacs.h -h "${FSH_LIBEDIT_STAGE}/emacs.c"
+    ${FSH_LIBEDIT_STAGE}/emacs.c)
+  fsh_libedit_header(common.h -h "${FSH_LIBEDIT_STAGE}/common.c"
+    ${FSH_LIBEDIT_STAGE}/common.c)
+  fsh_libedit_header(fcns.h -fh
+    "${FSH_LIBEDIT_GEN_DIR}/vi.h|${FSH_LIBEDIT_GEN_DIR}/emacs.h|${FSH_LIBEDIT_GEN_DIR}/common.h"
+    ${FSH_LIBEDIT_GEN_DIR}/vi.h ${FSH_LIBEDIT_GEN_DIR}/emacs.h
+    ${FSH_LIBEDIT_GEN_DIR}/common.h)
+  fsh_libedit_header(func.h -fc
+    "${FSH_LIBEDIT_GEN_DIR}/vi.h|${FSH_LIBEDIT_GEN_DIR}/emacs.h|${FSH_LIBEDIT_GEN_DIR}/common.h"
+    ${FSH_LIBEDIT_GEN_DIR}/vi.h ${FSH_LIBEDIT_GEN_DIR}/emacs.h
+    ${FSH_LIBEDIT_GEN_DIR}/common.h)
+  fsh_libedit_header(help.h -bh
+    "${FSH_LIBEDIT_STAGE}/vi.c|${FSH_LIBEDIT_STAGE}/emacs.c|${FSH_LIBEDIT_STAGE}/common.c"
+    ${FSH_LIBEDIT_STAGE}/vi.c ${FSH_LIBEDIT_STAGE}/emacs.c
+    ${FSH_LIBEDIT_STAGE}/common.c)
+
+  set(FSH_LIBEDIT_GENERATED
+    ${FSH_LIBEDIT_GEN_DIR}/vi.h
+    ${FSH_LIBEDIT_GEN_DIR}/emacs.h
+    ${FSH_LIBEDIT_GEN_DIR}/common.h
+    ${FSH_LIBEDIT_GEN_DIR}/fcns.h
+    ${FSH_LIBEDIT_GEN_DIR}/func.h
+    ${FSH_LIBEDIT_GEN_DIR}/help.h)
+
+  add_library(edit STATIC ${FSH_LIBEDIT_SOURCES} ${FSH_LIBEDIT_GENERATED})
+  target_include_directories(edit
+    PRIVATE ${FSH_LIBEDIT_GEN_DIR} ${CURSES_INCLUDE_DIRS}
+      ${FSH_SRC_DIR}/compat ${FSH_LIBEDIT_STAGE}
+    PUBLIC ${FSH_LIBEDIT_STAGE} ${FSH_INCLUDE_DIR})
+  target_link_libraries(edit PUBLIC ${CURSES_LIBRARIES})
+  if(NOT FSH_ZOS)
+    target_compile_definitions(edit PRIVATE _GNU_SOURCE)
+  endif()
 endif()
-if(NOT FSH_TEST_SHELL)
-  set(FSH_TEST_SHELL sh)
-endif()
 
-# Every .c in src/ is part of the shell.  src/zos_builtins.c is globbed
-# with the rest (it compiles everywhere: off z/OS its builtins report
-# "only available on z/OS"); src/zos_spawn.c is added conditionally
-# below because it is all __MVS__ and empty elsewhere.
-file(GLOB FSH_SOURCES CONFIGURE_DEPENDS ${FSH_SRC_DIR}/*.c)
-list(SORT FSH_SOURCES)
+# ---- FreeBSD sh generators ------------------------------------------
 
-# Feature checks; they generate pconfig.h through cmake/pconfig.h.in.
-include(cmake/checks.cmake)
+add_executable(mknodes ${FSH_SRC_DIR}/mknodes.c)
+add_executable(mksyntax ${FSH_SRC_DIR}/mksyntax.c)
+foreach(tool mknodes mksyntax)
+  target_include_directories(${tool} PRIVATE
+    ${FSH_SRC_DIR} ${FSH_SRC_DIR}/compat)
+  if(NOT FSH_ZOS)
+    target_compile_options(${tool} PRIVATE
+      -include ${FSH_SRC_DIR}/compat/bsd.h)
+  endif()
+endforeach()
 
-add_executable(fsh ${FSH_SOURCES})
+add_custom_command(OUTPUT ${FSH_GEN_DIR}/nodes.c ${FSH_GEN_DIR}/nodes.h
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${FSH_GEN_DIR}
+  COMMAND $<TARGET_FILE:mknodes> ${FSH_SRC_DIR}/nodetypes ${FSH_SRC_DIR}/nodes.c.pat
+  DEPENDS mknodes ${FSH_SRC_DIR}/nodetypes ${FSH_SRC_DIR}/nodes.c.pat
+  WORKING_DIRECTORY ${FSH_GEN_DIR}
+  VERBATIM)
+
+add_custom_command(OUTPUT ${FSH_GEN_DIR}/syntax.c ${FSH_GEN_DIR}/syntax.h
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${FSH_GEN_DIR}
+  COMMAND $<TARGET_FILE:mksyntax>
+  DEPENDS mksyntax
+  WORKING_DIRECTORY ${FSH_GEN_DIR}
+  VERBATIM)
+
+add_custom_command(OUTPUT ${FSH_GEN_DIR}/token.h
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${FSH_GEN_DIR}
+  COMMAND ${FSH_BUILD_SHELL} ${FSH_SRC_DIR}/mktokens
+  DEPENDS ${FSH_SRC_DIR}/mktokens
+  WORKING_DIRECTORY ${FSH_GEN_DIR}
+  VERBATIM)
+
+add_custom_command(OUTPUT ${FSH_GEN_DIR}/builtins.c ${FSH_GEN_DIR}/builtins.h
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${FSH_GEN_DIR}
+  COMMAND ${FSH_BUILD_SHELL} ${FSH_SRC_DIR}/mkbuiltins ${FSH_SRC_DIR}
+  DEPENDS ${FSH_SRC_DIR}/mkbuiltins ${FSH_SRC_DIR}/builtins.def
+    ${FSH_SRC_DIR}/shell.h
+  WORKING_DIRECTORY ${FSH_GEN_DIR}
+  VERBATIM)
+
+# ---- fsh -------------------------------------------------------------
+
+set(FSH_SOURCES
+  ${FSH_SRC_DIR}/alias.c
+  ${FSH_SRC_DIR}/arith_yacc.c
+  ${FSH_SRC_DIR}/arith_yylex.c
+  ${FSH_SRC_DIR}/cd.c
+  ${FSH_SRC_DIR}/bltin/echo.c
+  ${FSH_SRC_DIR}/error.c
+  ${FSH_SRC_DIR}/eval.c
+  ${FSH_SRC_DIR}/exec.c
+  ${FSH_SRC_DIR}/expand.c
+  ${FSH_SRC_DIR}/histedit.c
+  ${FSH_SRC_DIR}/input.c
+  ${FSH_SRC_DIR}/jobs.c
+  ${FSH_SRC_DIR}/kill.c
+  ${FSH_SRC_DIR}/mail.c
+  ${FSH_SRC_DIR}/main.c
+  ${FSH_SRC_DIR}/memalloc.c
+  ${FSH_SRC_DIR}/miscbltin.c
+  ${FSH_SRC_DIR}/mystring.c
+  ${FSH_SRC_DIR}/options.c
+  ${FSH_SRC_DIR}/output.c
+  ${FSH_SRC_DIR}/parser.c
+  ${FSH_SRC_DIR}/printf.c
+  ${FSH_SRC_DIR}/redir.c
+  ${FSH_SRC_DIR}/show.c
+  ${FSH_SRC_DIR}/test.c
+  ${FSH_SRC_DIR}/trap.c
+  ${FSH_SRC_DIR}/var.c
+  ${FSH_SRC_DIR}/zos_syscvt.c
+  ${FSH_SRC_DIR}/compat/btemp.c
+  ${FSH_SRC_DIR}/compat/setmode.c
+  ${FSH_SRC_DIR}/compat/strlcpy.c
+  ${FSH_SRC_DIR}/compat/vis.c
+  ${FSH_GEN_DIR}/builtins.c
+  ${FSH_GEN_DIR}/nodes.c
+  ${FSH_GEN_DIR}/syntax.c)
+
+add_executable(fsh ${FSH_SOURCES}
+  ${FSH_GEN_DIR}/builtins.h
+  ${FSH_GEN_DIR}/nodes.h
+  ${FSH_GEN_DIR}/syntax.h
+  ${FSH_GEN_DIR}/token.h)
 
 target_include_directories(fsh PRIVATE
+  ${FSH_GEN_DIR}
   ${FSH_SRC_DIR}
-  ${CMAKE_CURRENT_BINARY_DIR})
-
-target_compile_definitions(fsh PRIVATE
-  $<$<BOOL:${FSH_EDITOR}>:EMACS VI>
-  $<$<BOOL:${FSH_SMALL}>:SMALL>
-  # oksh's configure adds -D_GNU_SOURCE on glibc; setresuid/setresgid
-  # and other prototypes live behind it (surfaced as implicit
-  # declaration errors once -w was dropped).
-  $<$<PLATFORM_ID:Linux>: _GNU_SOURCE>)
-
-# Apply the curses detection done above, now that the target exists.
-if(FSH_EDITOR AND CURSES_FOUND)
-  target_include_directories(fsh PRIVATE ${CURSES_INCLUDE_DIRS})
-  # An absolute path to a static archive links as a file, which is what
-  # z/OS needs (only libncursesw.a is installed, no shared object).
-  if(CURSES_LIBRARY MATCHES "\\.a$")
-    target_link_libraries(fsh PRIVATE "${CURSES_LIBRARY}")
-  else()
-    target_link_libraries(fsh PRIVATE ${CURSES_LIBRARIES})
-  endif()
-  message(STATUS "fsh: line editing with ${CURSES_LIBRARY}")
-  # z/OS: libncursesw.a needs zoslib to bind (the ASCII runtime shims
-  # and the C++ support its members reference). The toolchain locates
-  # it and hands the archives over here; empty elsewhere.
-  if(FSH_CURSES_LINK_ITEMS)
-    target_link_libraries(fsh PRIVATE ${FSH_CURSES_LINK_ITEMS})
-  endif()
+  ${FSH_SRC_DIR}/bltin
+  ${FSH_SRC_DIR}/compat
+  ${FSH_INCLUDE_DIR})
+target_compile_definitions(fsh PRIVATE SHELL)
+if(FSH_WITH_LIBEDIT)
+  target_include_directories(fsh PRIVATE ${FSH_LIBEDIT_DIR})
+  target_link_libraries(fsh PRIVATE edit)
+else()
+  target_compile_definitions(fsh PRIVATE NO_HISTORY)
 endif()
-
+if(NOT FSH_ZOS)
+  target_compile_definitions(fsh PRIVATE _GNU_SOURCE)
+  target_compile_options(fsh PRIVATE
+    -include ${FSH_SRC_DIR}/compat/bsd.h)
+else()
+  target_compile_definitions(fsh PRIVATE
+    _ALL_SOURCE _XPLATFORM_SOURCE _OPEN_SYS _OPEN_SYS_FILE_EXT
+    _POSIX_C_SOURCE=200809L)
+endif()
 if(FSH_STRICT)
   target_compile_options(fsh PRIVATE -Wall -Wextra -Werror)
 else()
   target_compile_options(fsh PRIVATE -Wall -Wextra)
 endif()
 
-# ---- z/OS layer ------------------------------------------------------
-# src/zos/sys_zos.c.ref is the zash donor for tagging and MVS data set
-# redirection; it is a .ref, not a .c, precisely so the glob above never
-# compiles it.  It is not buildable against oksh yet (see
-# docs/zos-changes.md).
-
-
-if(FSH_ZOS)
-  # zos_spawn.c lives at src/ root, not src/zos/, so that main.c and
-  # jobs.c can #include "zos_spawn.h" without an extra -I.
-  target_sources(fsh PRIVATE ${FSH_SRC_DIR}/zos_spawn.c)
-  # The ncurses link needs zoslib; see FSH_CURSES_LINK_ITEMS in
-  # cmake/toolchain-zos.cmake and docs/port.md P24.
-  # The z/OS headers gate interfaces on a stack of feature macros, and
-  # each one hides different things:
-  #   _ALL_SOURCE       the broad "make everything visible" switch
-  #   _XPLATFORM_SOURCE BSD/X-Open: flock() in <sys/file.h>, the
-  #                     timeradd() family in <sys/time.h>
-  #   _OPEN_SYS         z/OS UNIX interfaces: setgroups() in <grp.h>
-  #   _POSIX_C_SOURCE   POSIX.1-2008: strsignal() in <string.h>
-  #   _OPEN_SYS_FILE_EXT  extended file data: struct stat's st_tag
-  #                     (ft_ccsid, ft_txtflag) and <fcntl.h>'s F_SETTAG,
-  #                     F_CONTROL_CVT -- zos_builtins.c's chtag -p
-  #
-  # AGENTS.txt 2a lists the macros with the interface each one hides.
-  #
-  # Deliberately NOT _UNIX03_SOURCE: it makes the headers emit the
-  # __-prefixed LE entry points (__sysconf, __fopen_ascii), which a
-  # statically linked program cannot resolve -- the binder reports
-  # IEW2456E for each. _ALL_SOURCE already exposes setenv() under its
-  # documented non-POSIX name, so SUSv3 is not needed for it.
-  # docs/port.md records which interface needed which; AGENTS.txt 2a
-  # keeps the list.
-  target_compile_definitions(fsh PRIVATE
-    _ALL_SOURCE _XPLATFORM_SOURCE _OPEN_SYS _OPEN_SYS_FILE_EXT
-    _POSIX_C_SOURCE=200809L)
-endif()
-
-# ---- Install ---------------------------------------------------------
-
-if(FSH_INSTALL_AS_KSH)
-  set(FSH_PROG ksh)
-else()
-  set(FSH_PROG fsh)
-endif()
-
-set_target_properties(fsh PROPERTIES OUTPUT_NAME ${FSH_PROG})
-
 include(GNUInstallDirs)
 install(TARGETS fsh RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-# No man page is installed yet. The copied oksh ksh.1 was removed when
-# the FreeBSD sh port became the candidate foundation: it documents the
-# old base, not fsh or the FreeBSD userland port. Write man/fsh.1 once
-# the base decision is settled; FreeBSD sh's own page stays in the
-# vendor submodule at bin/sh/sh.1.
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/man/fsh.1
+  DESTINATION ${CMAKE_INSTALL_MANDIR}/man1
+  RENAME fsh.1)
 
-# ---- Checks and formatting -------------------------------------------
-
-# Format only the files this project writes.  Upstream oksh is not
-# clang-formatted (2,992 violations in src/ at the 2026-11-06 pin), and
-# reformatting it would make every future rebase a diff of whitespace.
-# An fsh-written file that is not formatted is a real finding; an
-# upstream one is not, so it is not checked here.
-set(FSH_FORMAT_SOURCES
-  ${FSH_SRC_DIR}/zos_builtins.c
-  ${FSH_SRC_DIR}/zos_spawn.c
-  ${FSH_SRC_DIR}/zos_spawn.h)
-
-find_program(CLANG_FORMAT_EXE clang-format)
-if(CLANG_FORMAT_EXE)
-  add_custom_target(format
-    COMMAND ${CLANG_FORMAT_EXE} --dry-run --Werror ${FSH_FORMAT_SOURCES}
-    COMMENT "clang-format check (fsh-written files only)" VERBATIM)
-endif()
-
-find_program(CLANG_TIDY_EXE clang-tidy)
-if(CLANG_TIDY_EXE)
-  add_custom_target(tidy
-    COMMAND ${CLANG_TIDY_EXE} -p ${CMAKE_BINARY_DIR}
-      ${FSH_SOURCES}
-    COMMENT "clang-tidy" VERBATIM)
-endif()
+# ---- Checks ----------------------------------------------------------
 
 # Every shell script this project writes is POSIX sh, including the test
 # scripts. A test may deliberately exercise a non-POSIX construct; those
 # lines carry a narrow shellcheck disable with the reason next to them.
 file(GLOB FSH_SHELL_SCRIPTS CONFIGURE_DEPENDS
-  ${CMAKE_CURRENT_SOURCE_DIR}/bench/*.sh
-  ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.sh)
-list(APPEND FSH_SHELL_SCRIPTS ${CMAKE_CURRENT_SOURCE_DIR}/configure)
+  ${CMAKE_CURRENT_SOURCE_DIR}/bench/*.sh)
+list(APPEND FSH_SHELL_SCRIPTS
+  ${CMAKE_CURRENT_SOURCE_DIR}/configure
+  ${CMAKE_CURRENT_SOURCE_DIR}/tests/harness)
 list(REMOVE_DUPLICATES FSH_SHELL_SCRIPTS)
 
 find_program(SHELLCHECK_EXE shellcheck)
@@ -245,7 +306,7 @@ if(SHELLCHECK_EXE)
 endif()
 
 # ---- Reference shell and benchmark ----------------------------------
-# The vendored FreeBSD sh is the benchmark reference, not part of fsh.
+# The vendored FreeBSD sh is kept as the pristine benchmark reference.
 # It is built out of tree by bench/build-refs.sh and is never installed.
 # The target is omitted on z/OS: there is no second shell to build there.
 if(NOT FSH_ZOS)
@@ -264,7 +325,7 @@ if(NOT FSH_ZOS)
         ${CMAKE_BINARY_DIR}/refs/bin/freebsd-sh
       DEPENDS fsh refshells
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-      COMMENT "Benchmarking fsh against FreeBSD sh"
+      COMMENT "Benchmarking fsh against pristine FreeBSD sh"
       VERBATIM)
   else()
     message(WARNING

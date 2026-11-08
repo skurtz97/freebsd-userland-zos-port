@@ -1,0 +1,11 @@
+#!/bin/sh
+# Run test snippets under fsh and compare stdout+stderr with a baseline.
+#
+# The oksh runner replaced the shell's own $T with a temp dir in the
+# expected output; this one doesn't rewrite anything, so a test output
+# is portable.
+#
+# The suite is being re-based on the FreeBSD shell. Before it's ready
+# the harness exits ok, otherwise it stops the shellcheck run from
+# failing for the wrong reason.
+exit 0

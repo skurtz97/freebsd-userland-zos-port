@@ -6,7 +6,6 @@
 #
 #   ./configure                        Debug build in build/
 #   ./configure --prefix=/usr/local
-#   ./configure --enable-small         -DFSH_SMALL=ON
 #   ./configure --cc=ibm-clang64       -DCMAKE_C_COMPILER=ibm-clang64
 #   ./configure --zos                  cmake/toolchain-zos.cmake (Open XL)
 #   ./configure --zos --xlc            z/OS with legacy XL C/C++ (xlc)
@@ -47,10 +46,8 @@ for arg in "$@"; do
   --cc=*)        extra="$extra -DCMAKE_C_COMPILER=${arg#--cc=}" ;;
   --cflags=*)    extra="$extra -DCMAKE_C_FLAGS=${arg#--cflags=}" ;;
   --build-dir=*) build=${arg#--build-dir=} ;;
-  --enable-small|--small)   extra="$extra -DFSH_SMALL=ON" ;;
-  --disable-small)          extra="$extra -DFSH_SMALL=OFF" ;;
-  --enable-curses|--curses) extra="$extra -DFSH_EDITOR=ON" ;;
-  --disable-curses)         extra="$extra -DFSH_EDITOR=OFF" ;;
+  --enable-curses|--curses) extra="$extra -DFSH_WITH_LIBEDIT=ON" ;;
+  --disable-curses|--no-libedit) extra="$extra -DFSH_WITH_LIBEDIT=OFF" ;;
   --enable-static|--static) extra="$extra -DBUILD_SHARED_LIBS=OFF" ;;
   --zos)         toolchain="-DCMAKE_TOOLCHAIN_FILE=$srcdir/cmake/toolchain-zos.cmake -DFSH_ZOS=ON" ;;
   --xlc)         extra="$extra -DFSH_ZOS_COMPILER=xlc" ;;
