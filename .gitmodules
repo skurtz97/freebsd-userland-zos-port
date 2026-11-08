@@ -1,3 +1,6 @@
 [submodule "vendor/freebsd-sh"]
 	path = vendor/freebsd-sh
 	url = https://github.com/skurtz97/freebsd-userland-zos-port-src.git
+[submodule "vendor/libedit"]
+	path = vendor/libedit
+	url = https://github.com/ThomasAdam/libedit.git

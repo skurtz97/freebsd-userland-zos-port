@@ -1,8 +1,8 @@
-# Vendored reference shell
+# Vendored dependencies
 
-The only vendor tree left is FreeBSD `bin/sh`. It is a **git
-submodule**, not a set of files in this repository, so the
-superproject records only a gitlink and the pin in `.gitmodules`.
+The vendor trees are **git submodules**, not sets of files in this
+repository, so the superproject records only a gitlink and the pin in
+`.gitmodules`. They are part of the build, not only references.
 
 ```sh
 git submodule update --init --recursive
@@ -31,6 +31,13 @@ main repository heavier and its status noisier.
 | Directory | Repository | Pin | Licence |
 | --------- | ---------- | --- | ------- |
 | `freebsd-sh/` | <https://github.com/skurtz97/freebsd-userland-zos-port-src> | commit `2bc9d53`, tag `freebsd-15.1.0` | BSD-3-Clause / BSD-2-Clause, per file |
+| `libedit/` | <https://github.com/ThomasAdam/libedit> | commit `cabe0cf6a78a93fc9389e5fe1e3814790a6d8787` | BSD-3-Clause, see `libedit/COPYING` |
+
+FreeBSD sh uses `libedit` for line editing and history. The port builds
+it as part of the shell build; `-DNO_HISTORY` is no longer the default.
+`libedit/src/filecomplete.h` and `filecomplete.c` are present, which is
+why this upstream is used instead of the system libedit that lacks
+FreeBSD's file-completion extension.
 
 `freebsd-sh/` is the dedicated **FreeBSD userland port source for
 z/OS** repository, starting with `bin/sh`. It is not the whole FreeBSD source
