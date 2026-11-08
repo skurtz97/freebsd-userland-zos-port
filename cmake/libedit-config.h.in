@@ -1,13 +1,15 @@
 /* Generated for the vendored FreeBSD contrib/libedit. */
-#cmakedefine01 HAVE_CURSES_H
-#cmakedefine01 HAVE_NCURSES_H
-#cmakedefine01 HAVE_GETPW_R_POSIX
-#cmakedefine01 HAVE_GETPW_R_DRAFT
-#cmakedefine01 HAVE_ISSETUGID
-#cmakedefine01 HAVE_STRUCT_DIRENT_D_NAMLEN
-#cmakedefine01 HAVE_SYS_CDEFS_H
-#cmakedefine01 HAVE_TERMCAP_H
-#cmakedefine01 HAVE_TERM_H
+/* libedit checks these with #ifdef, so leave a missing header/function
+ * undefined rather than defining it to 0. */
+#cmakedefine HAVE_CURSES_H 1
+#cmakedefine HAVE_NCURSES_H 1
+#cmakedefine HAVE_GETPW_R_POSIX 1
+#cmakedefine HAVE_GETPW_R_DRAFT 1
+#cmakedefine HAVE_ISSETUGID 1
+#cmakedefine HAVE_STRUCT_DIRENT_D_NAMLEN 1
+#cmakedefine HAVE_SYS_CDEFS_H 1
+#cmakedefine HAVE_TERMCAP_H 1
+#cmakedefine HAVE_TERM_H 1
 #include <stddef.h>
 #include <stdint.h>
 #include "sys.h"

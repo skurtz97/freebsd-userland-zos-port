@@ -172,10 +172,11 @@ add_executable(mksyntax ${FSH_SRC_DIR}/mksyntax.c)
 foreach(tool mknodes mksyntax)
   target_include_directories(${tool} PRIVATE
     ${FSH_SRC_DIR} ${FSH_SRC_DIR}/compat)
-  if(NOT FSH_ZOS)
-    target_compile_options(${tool} PRIVATE
-      -include ${FSH_SRC_DIR}/compat/bsd.h)
-  endif()
+  # FreeBSD's generator sources use __unused/__printf0like/__dead2.
+  # Linux has no FreeBSD <sys/cdefs.h>, and z/OS does not supply these
+  # names at all, so use the compat header on both hosts.
+  target_compile_options(${tool} PRIVATE
+    -include ${FSH_SRC_DIR}/compat/bsd.h)
 endforeach()
 
 add_custom_command(OUTPUT ${FSH_GEN_DIR}/nodes.c ${FSH_GEN_DIR}/nodes.h
