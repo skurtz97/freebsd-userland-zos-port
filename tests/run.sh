@@ -15,6 +15,12 @@ SH=$sh_under_test
 export T SH
 zos=0
 [ "$(uname)" = OS/390 ] && zos=1
+# FSH_ENCODE names the charset the shell under test reads (IBM-1047 on
+# z/OS).  The test scripts are ASCII and correctly tagged UTF-8, but an
+# EBCDIC shell cannot parse ASCII bytes as shell syntax, so each test is
+# converted before the shell sees it.  Written for /bin/sh: no $( )
+# beyond the one above (matched by CMake's own usage), no local.
+: ${FSH_ENCODE=}
 fail=0
 for t in "$dir"/*.sh; do
 	# run.sh is this runner and run-c.sh is its per-test wrapper (the one
@@ -30,7 +36,16 @@ for t in "$dir"/*.sh; do
 	# autoconversion translate on write; truncation keeps the tag.
 	: > "$out"
 	[ "$zos" -eq 1 ] && chtag -tc IBM-1047 "$out"
-	(cd "$T" && "$sh_under_test" "$t") > "$out" 2>&1
+	# The script the shell reads, in the shell's charset.  A copy is
+	# used so the tree keeps its ASCII originals (AGENTS.txt 3: a
+	# test file of ASCII text is properly tagged UTF-8 and must not be
+	# converted in place to hide a defect).
+	src=$t
+	if [ -n "$FSH_ENCODE" ]; then
+		src=$T/$(basename "$t")
+		iconv -f ISO8859-1 -t "$FSH_ENCODE" < "$t" > "$src" || src=$t
+	fi
+	(cd "$T" && "$sh_under_test" "$src") > "$out" 2>&1
 	if cmp -s "$out" "$T/expected"; then
 		[ "$verbose" -eq 1 ] && echo "ok   $t"
 	else
