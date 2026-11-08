@@ -159,6 +159,9 @@ if(FSH_WITH_LIBEDIT)
     PRIVATE ${FSH_LIBEDIT_GEN_DIR} ${CURSES_INCLUDE_DIRS}
       ${FSH_SRC_DIR}/compat ${FSH_LIBEDIT_STAGE}
     PUBLIC ${FSH_LIBEDIT_STAGE} ${FSH_INCLUDE_DIR})
+  if(FSH_ZOS)
+    target_include_directories(edit PRIVATE ${FSH_SRC_DIR}/compat/zos)
+  endif()
   target_link_libraries(edit PUBLIC ${CURSES_LIBRARIES})
   if(NOT FSH_ZOS)
     target_compile_definitions(edit PRIVATE _GNU_SOURCE)
@@ -267,6 +270,10 @@ target_include_directories(fsh PRIVATE
   ${FSH_SRC_DIR}/bltin
   ${FSH_SRC_DIR}/compat
   ${FSH_INCLUDE_DIR})
+if(FSH_ZOS)
+  # z/OS has no <sys/param.h>, and its <wchar.h> has no wcsdup().
+  target_include_directories(fsh PRIVATE ${FSH_SRC_DIR}/compat/zos)
+endif()
 target_compile_definitions(fsh PRIVATE SHELL)
 if(FSH_WITH_LIBEDIT)
   target_include_directories(fsh PRIVATE ${FSH_LIBEDIT_DIR})

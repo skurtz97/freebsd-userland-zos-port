@@ -8,6 +8,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/types.h>
+#include <wchar.h>
 #include "bsd.h"
 
 /* glibc has no issetugid(); a POSIX programme can compute the answer. */
@@ -16,6 +17,20 @@ fsh_issetugid(void)
 {
 	return geteuid() != getuid() || getegid() != getgid();
 }
+
+#ifdef __MVS__
+/* z/OS <wchar.h> has no wcsdup(); libedit uses it. */
+wchar_t *
+wcsdup(const wchar_t *s)
+{
+	size_t len = wcslen(s) + 1;
+	wchar_t *copy = malloc(len * sizeof(*copy));
+
+	if (copy != NULL)
+		memcpy(copy, s, len * sizeof(*copy));
+	return copy;
+}
+#endif
 
 const char *const sys_signame[NSIG] = {
 	[0] = "Signal 0",
