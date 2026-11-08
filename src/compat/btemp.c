@@ -30,6 +30,96 @@ wcsdup(const wchar_t *s)
 		memcpy(copy, s, len * sizeof(*copy));
 	return copy;
 }
+
+/* z/OS libc gaps used by the FreeBSD shell. */
+int
+eaccess(const char *path, int mode)
+{
+	return access(path, mode);
+}
+
+int
+setenv(const char *name, const char *value, int overwrite)
+{
+	size_t nlen, vlen;
+	char *entry;
+
+	if (!overwrite && getenv(name) != NULL)
+		return 0;
+	nlen = strlen(name);
+	vlen = strlen(value);
+	if ((entry = malloc(nlen + vlen + 2)) == NULL)
+		return -1;
+	memcpy(entry, name, nlen);
+	entry[nlen] = '=';
+	memcpy(entry + nlen + 1, value, vlen + 1);
+	if (putenv(entry) != 0) {
+		free(entry);
+		return -1;
+	}
+	return 0;
+}
+
+int
+unsetenv(const char *name)
+{
+	size_t len = strlen(name);
+	char **env = environ;
+
+	while (*env != NULL) {
+		if (strncmp(*env, name, len) == 0 && (*env)[len] == '=') {
+			char **p = env;
+			while (*p != NULL) {
+				p[0] = p[1];
+				p++;
+			}
+		} else {
+			env++;
+		}
+	}
+	return 0;
+}
+
+void *
+reallocarray(void *ptr, size_t nmemb, size_t size)
+{
+	if (size != 0 && nmemb > SIZE_MAX / size) {
+		errno = ENOMEM;
+		return NULL;
+	}
+	return realloc(ptr, nmemb * size);
+}
+
+char *
+strsep(char **stringp, const char *delim)
+{
+	char *s = *stringp;
+	char *end;
+
+	if (s == NULL)
+		return NULL;
+	if ((end = strpbrk(s, delim)) != NULL) {
+		*end = '\0';
+		*stringp = end + 1;
+	} else {
+		*stringp = NULL;
+	}
+	return s;
+}
+
+char *
+strndup(const char *s, size_t n)
+{
+	const char *end = memchr(s, '\0', n);
+	size_t len = end != NULL ? (size_t)(end - s) : n;
+	char *copy = malloc(len + 1);
+
+	if (copy == NULL)
+		return NULL;
+	memcpy(copy, s, len);
+	copy[len] = '\0';
+	return copy;
+}
 #endif
 
 const char *const sys_signame[NSIG] = {

@@ -643,6 +643,7 @@ static char
 
 			if (strncmp(entry->d_name, text, curpos) != 0)
 				continue;
+#if defined(DT_UNKNOWN) && defined(DT_LNK) && defined(DT_REG)
 			if (entry->d_type == DT_UNKNOWN || entry->d_type == DT_LNK) {
 				if (fstatat(dfd, entry->d_name, &statb, 0) == -1)
 					continue;
@@ -650,6 +651,12 @@ static char
 					continue;
 			} else if (entry->d_type != DT_REG)
 				continue;
+#else
+			if (fstatat(dfd, entry->d_name, &statb, 0) == -1)
+				continue;
+			if (!S_ISREG(statb.st_mode))
+				continue;
+#endif
 			rmatches = add_match(matches, ++i, &size,
 				strdup(entry->d_name));
 			if (rmatches == NULL) {

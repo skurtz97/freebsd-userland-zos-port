@@ -356,6 +356,8 @@ if(FSH_ZOS)
   target_include_directories(fsh PRIVATE ${FSH_SRC_DIR}/compat/zos)
 endif()
 target_compile_definitions(fsh PRIVATE SHELL)
+target_compile_options(fsh PRIVATE
+  -include ${FSH_SRC_DIR}/compat/bsd.h)
 if(FSH_WITH_LIBEDIT)
   target_include_directories(fsh PRIVATE ${FSH_LIBEDIT_DIR})
   target_link_libraries(fsh PRIVATE edit)
@@ -364,8 +366,6 @@ else()
 endif()
 if(NOT FSH_ZOS)
   target_compile_definitions(fsh PRIVATE _GNU_SOURCE)
-  target_compile_options(fsh PRIVATE
-    -include ${FSH_SRC_DIR}/compat/bsd.h)
 else()
   target_compile_definitions(fsh PRIVATE
     _ALL_SOURCE _XPLATFORM_SOURCE _OPEN_SYS _OPEN_SYS_FILE_EXT

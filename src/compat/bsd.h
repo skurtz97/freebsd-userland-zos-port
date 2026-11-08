@@ -77,6 +77,16 @@ int str2sig(const char *, int *);
 void *setmode(const char *);
 mode_t getmode(const void *, mode_t);
 FILE *fwopen(void *, int (*)(void *, const char *, int));
+
+#ifdef __MVS__
+/* z/OS libc gaps used by the FreeBSD shell; implemented in btemp.c. */
+int eaccess(const char *, int);
+int setenv(const char *, const char *, int);
+int unsetenv(const char *);
+void *reallocarray(void *, size_t, size_t);
+char *strsep(char **, const char *);
+char *strndup(const char *, size_t);
+#endif
 #endif
 /* C11 Annex K qsort_s is a FreeBSD libc feature (and Linux glibc has no
  * prototype even where it exists). histedit.c uses it for command-name
