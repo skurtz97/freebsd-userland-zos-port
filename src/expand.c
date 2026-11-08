@@ -1170,10 +1170,12 @@ expmeta(char *enddir, char *name, struct arglist *arglist)
 			if (atend)
 				appendarglist(arglist, stsavestr(expdir));
 			else {
+#if defined(DT_UNKNOWN) && defined(DT_DIR) && defined(DT_LNK)
 				if (dp->d_type != DT_UNKNOWN &&
 				    dp->d_type != DT_DIR &&
 				    dp->d_type != DT_LNK)
 					continue;
+#endif
 				if (enddir + namlen + 2 > expdir_end)
 					continue;
 				enddir[namlen] = '/';
