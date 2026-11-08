@@ -31,6 +31,7 @@ main repository heavier and its status noisier.
 | Directory | Repository | Pin | Licence |
 | --------- | ---------- | --- | ------- |
 | `freebsd-sh/` | <https://github.com/skurtz97/freebsd-userland-zos-port-src> | commit `2bc9d53`, tag `freebsd-15.1.0` | BSD-3-Clause / BSD-2-Clause, per file |
+| `libedit/` | <https://github.com/skurtz97/freebsd-userland-zos-port-libedit> | commit `4d79ff1`, tag `freebsd-15.1.0` | BSD-3-Clause / BSD-2-Clause, per file |
 
 `freebsd-sh/` is the dedicated **FreeBSD userland port source for
 z/OS** repository, starting with `bin/sh`. It is not the whole FreeBSD source
