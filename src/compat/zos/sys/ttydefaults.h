@@ -9,8 +9,5 @@
 #ifndef CTRL
 #define CTRL(c) ((c) & 037)
 #endif
-#ifndef CONTROL
-#define CONTROL(c) ((c) & 037)
-#endif
 
 #endif /* FSH_ZOS_SYS_TTYDEFAULTS_H */

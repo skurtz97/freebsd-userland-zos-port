@@ -184,6 +184,37 @@ endif()
 
 # ---- FreeBSD sh generators ------------------------------------------
 
+# mknodes reads nodetypes and nodes.c.pat as raw bytes.  The checkout is
+# UTF-8-tagged ASCII, but mknodes is an EBCDIC program: its '\n' is
+# 0x15, while the file holds 0x0a.  Convert the two inputs to EBCDIC in
+# the build tree on z/OS.  The other generators take no such input.
+if(FSH_ZOS)
+  find_program(FSH_ICONV NAMES iconv)
+  if(NOT FSH_ICONV)
+    message(FATAL_ERROR
+      "z/OS build needs iconv to convert mknodes input to IBM-1047")
+  endif()
+  set(FSH_NODETYPES ${FSH_GEN_DIR}/nodetypes)
+  set(FSH_NODES_PAT ${FSH_GEN_DIR}/nodes.c.pat)
+  foreach(_pair "${FSH_SRC_DIR}/nodetypes;${FSH_NODETYPES}"
+                "${FSH_SRC_DIR}/nodes.c.pat;${FSH_NODES_PAT}")
+    list(GET _pair 0 _in)
+    list(GET _pair 1 _out)
+    get_filename_component(_name "${_out}" NAME)
+    add_custom_command(OUTPUT ${_out}
+      COMMAND ${CMAKE_COMMAND} -E make_directory ${FSH_GEN_DIR}
+      COMMAND ${CMAKE_COMMAND} -DICONV=${FSH_ICONV}
+        -DINPUT=${_in} -DOUTPUT=${_out}
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/zos-convert.cmake
+      DEPENDS ${_in} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/zos-convert.cmake
+      COMMENT "Converting ${_name} to IBM-1047"
+      VERBATIM)
+  endforeach()
+else()
+  set(FSH_NODETYPES ${FSH_SRC_DIR}/nodetypes)
+  set(FSH_NODES_PAT ${FSH_SRC_DIR}/nodes.c.pat)
+endif()
+
 add_executable(mknodes ${FSH_SRC_DIR}/mknodes.c)
 add_executable(mksyntax ${FSH_SRC_DIR}/mksyntax.c)
 foreach(tool mknodes mksyntax)
@@ -198,8 +229,8 @@ endforeach()
 
 add_custom_command(OUTPUT ${FSH_GEN_DIR}/nodes.c ${FSH_GEN_DIR}/nodes.h
   COMMAND ${CMAKE_COMMAND} -E make_directory ${FSH_GEN_DIR}
-  COMMAND $<TARGET_FILE:mknodes> ${FSH_SRC_DIR}/nodetypes ${FSH_SRC_DIR}/nodes.c.pat
-  DEPENDS mknodes ${FSH_SRC_DIR}/nodetypes ${FSH_SRC_DIR}/nodes.c.pat
+  COMMAND $<TARGET_FILE:mknodes> ${FSH_NODETYPES} ${FSH_NODES_PAT}
+  DEPENDS mknodes ${FSH_NODETYPES} ${FSH_NODES_PAT}
   WORKING_DIRECTORY ${FSH_GEN_DIR}
   VERBATIM)
 
