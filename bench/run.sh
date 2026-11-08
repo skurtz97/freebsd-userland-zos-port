@@ -1,6 +1,6 @@
-#!/usr/bin/env bash
-# shellcheck shell=bash
-# Usage: bench/run.sh [-v] [-n runs] shell...   (e.g. ./zash dash bash oksh)
+#!/bin/sh
+# shellcheck shell=sh
+# Usage: bench/run.sh [-v] [-n runs] shell...
 # Prints the best-of-N wall time per workload; -v also prints each run.
 set -u
 verbose=0 runs=3
@@ -14,15 +14,19 @@ done
 shift $((OPTIND - 1))
 [ $# -gt 0 ] || { echo "usage: $0 [-v] [-n runs] shell..." >&2; exit 2; }
 dir=$(cd "$(dirname "$0")" && pwd)
-# workloads run from a temp dir, so make relative shell paths absolute
-shells=()
-for s in "$@"; do
+# Workloads run from a temp dir, so make relative shell paths absolute.
+# Rotate each positional argument through the list: shift the original
+# off the front, append its normalized form, and count the originals.
+n=$#
+while [ "$n" -gt 0 ]; do
+	s=$1
+	shift
 	case $s in
 	*/*) s=$(cd "$(dirname "$s")" && pwd)/${s##*/} ;;
 	esac
-	shells+=("$s")
+	set -- "$@" "$s"
+	n=$((n - 1))
 done
-set -- "${shells[@]}"
 tmp=$(mktemp -d) || exit 1
 trap 'rm -rf "$tmp"' EXIT
 seq 1 100000 | sed 's/$/ alpha beta gamma/' >"$tmp/data.txt"
@@ -37,12 +41,18 @@ for w in "$tmp"/w_*.sh; do
 	printf '%-8s' "$name"
 	for s in "$@"; do
 		best=
-		for ((r = 0; r < runs; r++)); do
+		i=0
+		while [ "$i" -lt "$runs" ]; do
 			st=$(date +%s%N)
 			(cd "$tmp" && SH=$s "$s" "$w" >/dev/null 2>&1)
 			ms=$((($(date +%s%N) - st) / 1000000))
-			[ "$verbose" -eq 1 ] && echo "  $name ${s##*/} run$r ${ms}ms" >&2
-			if [ -z "$best" ] || [ "$ms" -lt "$best" ]; then best=$ms; fi
+			if [ "$verbose" -eq 1 ]; then
+				echo "  $name ${s##*/} run$i ${ms}ms" >&2
+			fi
+			if [ -z "$best" ] || [ "$ms" -lt "$best" ]; then
+				best=$ms
+			fi
+			i=$((i + 1))
 		done
 		printf '%9s' "$((best / 1000)).$(printf '%02d' $((best % 1000 / 10)))s"
 	done

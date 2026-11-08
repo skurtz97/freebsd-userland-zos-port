@@ -5,7 +5,7 @@
 #   bench/build-refs.sh --force         # rebuild
 #   bench/build-refs.sh --clean         # remove build-refs/ first
 #   bench/build-refs.sh -j 4
-#   ZKSH_REF_BUILD=/path bench/build-refs.sh
+#   FSH_REF_BUILD=/path bench/build-refs.sh
 #
 # Only FreeBSD sh remains as a benchmark reference. oksh, dash and ksh93
 # were removed after the 2026-11-07 comparison: FreeBSD sh was fastest
@@ -21,13 +21,13 @@
 # neither the submodule nor this repository's CMake build is modified.
 # The binary is collected in:
 #
-#   $ZKSH_REF_BUILD/bin/freebsd-sh
+#   $FSH_REF_BUILD/bin/freebsd-sh
 #
 # This target is Linux/Unix only. It is not part of the z/OS build.
 set -eu
 
-root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-out=${ZKSH_REF_BUILD:-$root/build-refs}
+root=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
+out=${FSH_REF_BUILD:-$root/build-refs}
 force=0
 if command -v nproc >/dev/null 2>&1; then
 	jobs=$(nproc)
@@ -100,7 +100,6 @@ run_logged() {
 }
 
 build_freebsd_sh() {
-	name=freebsd-sh
 	src=$out/src/freebsd-sh
 	log=$out/log/freebsd-sh.log
 	echo "build-refs: freebsd-sh (vendor/freebsd-sh, freebsd-userland-zos-port)"
@@ -136,7 +135,7 @@ build_freebsd_sh() {
 			run_logged "$log" "$cc" $cflags $defs -c "$f"
 		done
 		# shellcheck disable=SC2086
-		run_logged "$log" "$cc" -o sh *.o
+		run_logged "$log" "$cc" -o sh ./*.o
 	)
 	cp "$src/bin/sh/sh" "$out/bin/freebsd-sh"
 	chmod 755 "$out/bin/freebsd-sh"
